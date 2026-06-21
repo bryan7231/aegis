@@ -12,6 +12,9 @@ class LockfileInput(BaseModel):
 class ProjectCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    # A public GitHub repo link is the primary input — lockfiles are fetched
+    # from it. `files` may still be passed directly (e.g. for tests).
+    repo_url: Optional[str] = None
     files: Optional[list[LockfileInput]] = None
 
 
@@ -19,6 +22,7 @@ class Project(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     description: Optional[str] = None
+    repo_url: Optional[str] = None
     ecosystem: Optional[str] = None
     files: list[LockfileInput] = Field(default_factory=list)
     status: str = "pending"  # pending | analyzed
