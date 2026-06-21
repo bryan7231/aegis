@@ -10,6 +10,7 @@ import { useNavigate } from "@tanstack/react-router";
 import App from "./pages/App";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
+import { UserTab } from "@/components/UserTab";
 
 function AuthLayout() {
   const { isSignedIn, isLoaded } = useAuth();
@@ -24,7 +25,12 @@ function AuthLayout() {
   if (!isLoaded) return <div className="auth-loading">Loading…</div>;
   if (!isSignedIn) return null;
 
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <UserTab />
+    </>
+  );
 }
 
 const rootRoute = createRootRoute();
