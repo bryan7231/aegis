@@ -9,6 +9,7 @@ import { useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { configureAuth } from "@/lib/api";
 import App from "./pages/App";
+import { ProjectPage } from "./pages/ProjectPage";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
 import { UserTab } from "@/components/UserTab";
@@ -52,6 +53,12 @@ const indexRoute = createRoute({
   component: App,
 });
 
+const projectRoute = createRoute({
+  getParentRoute: () => authRoute,
+  path: "/projects/$projectId",
+  component: ProjectPage,
+});
+
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sign-in",
@@ -65,7 +72,7 @@ const signUpRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  authRoute.addChildren([indexRoute]),
+  authRoute.addChildren([indexRoute, projectRoute]),
   signInRoute,
   signUpRoute,
 ]);

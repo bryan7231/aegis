@@ -1,11 +1,19 @@
 import { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 
-import { listProjects } from "@/lib/api";
+import { listProjects, deleteProject } from "@/lib/api";
 import type { Project } from "@/types/project";
 import { NewProjectModal } from "@/components/NewProjectModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -20,6 +28,8 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,13 +55,25 @@ export function Dashboard() {
     }
 
     load();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   function handleProjectCreated(project: Project) {
     setProjects((current) => [project, ...current]);
+  }
+
+  async function handleDeleteConfirm() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteProject(deleteTarget.id);
+      setProjects((current) => current.filter((p) => p.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch {
+      // keep dialog open on error; user can retry
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
@@ -86,9 +108,7 @@ export function Dashboard() {
 
       {!loading && !loadError && projects.length === 0 && (
         <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 py-16 text-center">
-          <h2 className="text-lg font-medium text-foreground">
-            No projects yet
-          </h2>
+          <h2 className="text-lg font-medium text-foreground">No projects yet</h2>
           <p className="mt-2 max-w-sm text-sm text-muted-foreground">
             Create your first project by linking a public GitHub repository.
             We&apos;ll scan it for known vulnerabilities and build your attack-path graph.
@@ -103,37 +123,50 @@ export function Dashboard() {
       {!loading && projects.length > 0 && (
         <ul className="grid gap-4 sm:grid-cols-2">
           {projects.map((project) => (
-            <li
-              key={project.id}
-              className="rounded-xl border border-border bg-card p-5 shadow-sm transition-colors hover:border-primary/40"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="font-medium text-foreground">
-                    {project.name}
-                  </h2>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Created {formatDate(project.created_at)}
-                  </p>
+            <li key={project.id} className="group relative">
+              <Link
+                to="/projects/$projectId"
+                params={{ projectId: project.id }}
+                className="block rounded-xl border border-border bg-card p-5 shadow-sm transition-colors hover:border-primary/40"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="truncate font-medium text-foreground">
+                      {project.name}
+                    </h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Created {formatDate(project.created_at)}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={project.status === "analyzed" ? "default" : "secondary"}
+                  >
+                    {project.status}
+                  </Badge>
                 </div>
-                <Badge
-                  variant={
-                    project.status === "analyzed" ? "default" : "secondary"
-                  }
-                >
-                  {project.status}
-                </Badge>
-              </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <Badge variant="outline">{project.ecosystem}</Badge>
-                {project.summary && (
-                  <span className="text-xs text-muted-foreground">
-                    {project.summary.vulnerable_packages} vulns ·{" "}
-                    {project.summary.attack_paths} paths
-                  </span>
-                )}
-              </div>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">{project.ecosystem}</Badge>
+                  {project.summary && (
+                    <span className="text-xs text-muted-foreground">
+                      {project.summary.vulnerable_packages} vulns ·{" "}
+                      {project.summary.attack_paths} paths
+                    </span>
+                  )}
+                </div>
+              </Link>
+
+              {/* Delete button — sits on top of the card link */}
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  setDeleteTarget(project);
+                }}
+                className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                aria-label={`Delete ${project.name}`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
             </li>
           ))}
         </ul>
@@ -144,6 +177,27 @@ export function Dashboard() {
         onOpenChange={setModalOpen}
         onCreated={handleProjectCreated}
       />
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete project?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{deleteTarget?.name}</span> and all
+            its vulnerability data will be permanently removed. This cannot be undone.
+          </p>
+          <DialogFooter className="mt-2 gap-2">
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

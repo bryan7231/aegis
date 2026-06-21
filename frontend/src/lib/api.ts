@@ -1,4 +1,4 @@
-import type { CreateProjectRequest, Project } from "@/types/project";
+import type { AnalysisResult, CreateProjectRequest, Project, VulnGraph } from "@/types/project";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
@@ -38,4 +38,16 @@ export function createProject(data: CreateProjectRequest): Promise<Project> {
 
 export function listProjects(): Promise<Project[]> {
   return request<Project[]>("/projects");
+}
+
+export function getProjectVulnerabilities(projectId: string): Promise<AnalysisResult> {
+  return request<AnalysisResult>(`/projects/${projectId}/vulnerabilities`);
+}
+
+export function getProjectGraph(projectId: string): Promise<VulnGraph> {
+  return request<VulnGraph>(`/projects/${projectId}/graph`);
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  await request<unknown>(`/projects/${projectId}`, { method: "DELETE" });
 }

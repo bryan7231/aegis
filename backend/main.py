@@ -1,7 +1,7 @@
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -12,14 +12,22 @@ from models import (
     Project,
     ProjectCreate,
     Vulnerability,
+    VulnNode,
+    VulnEdge,
+    VulnGraph,
     AnalysisReport,
     AnalyzeResponse,
 )
 import github
 import osv
 import analyze
+import code_scan
 
 load_dotenv()
+
+# Project IDs whose analysis is currently running in a background task.
+# asyncio is single-threaded so no lock needed for set mutations.
+_running: set[str] = set()
 
 
 @asynccontextmanager
@@ -40,6 +48,8 @@ app.add_middleware(
 )
 
 
+# ── helpers ──────────────────────────────────────────────────────────────────
+
 def _row_to_project(row) -> Project:
     return Project(
         id=str(row["id"]),
@@ -54,14 +64,73 @@ def _row_to_project(row) -> Project:
     )
 
 
-def _row_to_analysis(row) -> AnalyzeResponse:
+def _row_to_analysis(row, graph: VulnGraph | None = None) -> AnalyzeResponse:
     return AnalyzeResponse(
         project_id=str(row["project_id"]),
         ecosystem=row["ecosystem"],
         report=AnalysisReport(**row["report"]) if row["report"] else None,
         vulnerabilities=[Vulnerability(**v) for v in (row["vulnerabilities"] or [])],
+        graph=graph,
         summary=row["summary"] or {},
     )
+
+
+async def _load_graph(conn, pid: uuid.UUID) -> VulnGraph | None:
+    """Load vuln_nodes + vuln_edges for a project from DB."""
+    node_rows = await conn.fetch(
+        "SELECT * FROM vuln_nodes WHERE project_id = $1 ORDER BY centrality_score DESC",
+        pid,
+    )
+    if not node_rows:
+        return None
+    edge_rows = await conn.fetch(
+        "SELECT * FROM vuln_edges WHERE project_id = $1",
+        pid,
+    )
+    nodes = [
+        VulnNode(
+            id=str(r["id"]),
+            source=r["source"],
+            title=r["title"],
+            description=r["description"],
+            severity=r["severity"],
+            cvss=r["cvss"],
+            cwe_ids=list(r["cwe_ids"] or []),
+            remediation=r["remediation"],
+            cve_id=r["cve_id"],
+            package=r["package"],
+            version=r["version"],
+            ecosystem=r["ecosystem"],
+            epss=r["epss"],
+            kev=r["kev"],
+            fixed_version=r["fixed_version"],
+            osv_url=r["osv_url"],
+            attack_vector=r["attack_vector"],
+            attack_complexity=r["attack_complexity"],
+            privileges_required=r["privileges_required"],
+            user_interaction=r["user_interaction"],
+            scope=r["scope"],
+            file_path=r["file_path"],
+            line_start=r["line_start"],
+            line_end=r["line_end"],
+            vuln_category=r["vuln_category"],
+            affected_code=r["affected_code"],
+            centrality_score=r["centrality_score"],
+        )
+        for r in node_rows
+    ]
+    edges = [
+        VulnEdge(
+            id=str(r["id"]),
+            source_id=str(r["source_id"]),
+            target_id=str(r["target_id"]),
+            edge_type=r["edge_type"],
+            confidence=r["confidence"],
+            description=r["description"] or "",
+        )
+        for r in edge_rows
+    ]
+    return VulnGraph(nodes=nodes, edges=edges)
 
 
 def _name_from_url(url: str) -> str:
@@ -95,6 +164,266 @@ def _detect_ecosystem(files: list[LockfileInput]) -> str | None:
             return ecosystem
     return None
 
+
+async def _analyze_in_background(project: Project, user_id: str, pid: uuid.UUID) -> None:
+    """Wrapper for background task: run analysis, update status, clean up _running."""
+    str_pid = str(pid)
+    try:
+        await _run_analysis(project, user_id, pid)
+    except Exception:
+        pool = await db.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE projects SET status = 'pending', updated_at = now() WHERE id = $1", pid
+            )
+    finally:
+        _running.discard(str_pid)
+
+
+async def _run_analysis(project: Project, user_id: str, pid: uuid.UUID) -> AnalyzeResponse:
+    """Run full analysis pipeline: OSV + code scan + edge generation. Persist to DB."""
+    import asyncio
+
+    # ── 1. Dependency vulnerability ingest (OSV) ──────────────────────────────
+    packages: list[dict] = []
+    if project.files:
+        for f in project.files:
+            packages.extend(osv.parse_lockfile(f.filename, f.content))
+
+    raw_vulns: list[dict] = []
+    source_files: list[dict] = []
+
+    repo_url = project.repo_url or ""
+
+    # Run OSV ingest and source file fetch concurrently
+    async def _fetch_source():
+        if repo_url:
+            try:
+                return await github.fetch_source_files(repo_url)
+            except Exception:
+                return []
+        return []
+
+    async def _empty():
+        return []
+
+    raw_vulns, source_files = await asyncio.gather(
+        osv.run_ingest(packages) if packages else _empty(),
+        _fetch_source(),
+    )
+
+    # ── 2. Code scan (Claude) ─────────────────────────────────────────────────
+    code_vulns = await code_scan.scan_source_files(source_files)
+
+    # ── 3. Convert all vulns to VulnNode dicts ────────────────────────────────
+    all_nodes: list[dict] = []
+
+    for rv in raw_vulns:
+        node_id = str(uuid.uuid4())
+        all_nodes.append({
+            "id": node_id,
+            "source": "dependency",
+            "title": rv.get("cve_id") or rv.get("package", "Unknown CVE"),
+            "description": rv.get("summary", ""),
+            "severity": rv.get("severity"),
+            "cvss": rv.get("cvss"),
+            "cwe_ids": rv.get("cwe_ids") or [],
+            "remediation": (f"Upgrade to {rv['fixed_version']}" if rv.get("fixed_version") else None),
+            "cve_id": rv.get("cve_id"),
+            "package": rv.get("package"),
+            "version": rv.get("version"),
+            "ecosystem": rv.get("ecosystem"),
+            "epss": rv.get("epss"),
+            "kev": bool(rv.get("kev")),
+            "fixed_version": rv.get("fixed_version"),
+            "osv_url": rv.get("osv_url"),
+            "attack_vector": rv.get("attack_vector"),
+            "attack_complexity": rv.get("attack_complexity"),
+            "privileges_required": rv.get("privileges_required"),
+            "user_interaction": rv.get("user_interaction"),
+            "scope": rv.get("scope"),
+            "file_path": None,
+            "line_start": None,
+            "line_end": None,
+            "vuln_category": None,
+            "affected_code": None,
+            "centrality_score": 0.0,
+        })
+
+    for cv in code_vulns:
+        node_id = str(uuid.uuid4())
+        all_nodes.append({
+            "id": node_id,
+            "source": "code",
+            "title": cv.title,
+            "description": cv.description,
+            "severity": cv.severity,
+            "cvss": cv.cvss,
+            "cwe_ids": cv.cwe_ids or [],
+            "remediation": cv.remediation,
+            "cve_id": None,
+            "package": None,
+            "version": None,
+            "ecosystem": None,
+            "epss": None,
+            "kev": False,
+            "fixed_version": None,
+            "osv_url": None,
+            "attack_vector": None,
+            "attack_complexity": None,
+            "privileges_required": None,
+            "user_interaction": None,
+            "scope": None,
+            "file_path": cv.file_path,
+            "line_start": cv.line_start,
+            "line_end": cv.line_end,
+            "vuln_category": cv.vuln_category,
+            "affected_code": cv.affected_code,
+            "centrality_score": 0.0,
+        })
+
+    # ── 4. Generate exploit-chain edges ───────────────────────────────────────
+    edge_specs = await analyze.generate_edges(all_nodes)
+
+    # Build UUID-mapped edges
+    edge_records: list[dict] = []
+    for spec in edge_specs:
+        if 0 <= spec.source_index < len(all_nodes) and 0 <= spec.target_index < len(all_nodes):
+            edge_records.append({
+                "id": str(uuid.uuid4()),
+                "source_id": all_nodes[spec.source_index]["id"],
+                "target_id": all_nodes[spec.target_index]["id"],
+                "edge_type": spec.edge_type,
+                "confidence": spec.confidence,
+                "description": spec.description,
+            })
+
+    # ── 5. Compute degree centrality ──────────────────────────────────────────
+    degree: dict[str, int] = {}
+    for er in edge_records:
+        degree[er["source_id"]] = degree.get(er["source_id"], 0) + 1
+        degree[er["target_id"]] = degree.get(er["target_id"], 0) + 1
+
+    max_degree = max(degree.values(), default=1)
+    for node in all_nodes:
+        node["centrality_score"] = degree.get(node["id"], 0) / max_degree
+
+    # ── 6. Claude narrative report ────────────────────────────────────────────
+    flat_vulns = [Vulnerability(**rv) for rv in raw_vulns]
+    try:
+        report = await analyze.generate_report(flat_vulns)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    summary = {
+        "total_packages": len(packages),
+        "vulnerable_packages": len({rv.get("package") for rv in raw_vulns if rv.get("package")}),
+        "total_cves": len(raw_vulns),
+        "code_vulns": len(code_vulns),
+        "total_nodes": len(all_nodes),
+        "total_edges": len(edge_records),
+        "kev_count": sum(1 for rv in raw_vulns if rv.get("kev")),
+    }
+
+    # ── 7. Persist to DB ──────────────────────────────────────────────────────
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # Upsert legacy analyses row (flat compat)
+            await conn.execute(
+                """
+                INSERT INTO analyses (project_id, user_id, ecosystem, report, vulnerabilities, summary)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (project_id) DO UPDATE
+                SET user_id = EXCLUDED.user_id,
+                    ecosystem = EXCLUDED.ecosystem,
+                    report = EXCLUDED.report,
+                    vulnerabilities = EXCLUDED.vulnerabilities,
+                    summary = EXCLUDED.summary
+                """,
+                pid, user_id, project.ecosystem,
+                report.model_dump() if report else None,
+                [v.model_dump() for v in flat_vulns],
+                summary,
+            )
+
+            # Clear old graph data for this project before re-inserting
+            await conn.execute("DELETE FROM vuln_edges WHERE project_id = $1", pid)
+            await conn.execute("DELETE FROM vuln_nodes WHERE project_id = $1", pid)
+
+            # Bulk-insert nodes
+            if all_nodes:
+                await conn.executemany(
+                    """
+                    INSERT INTO vuln_nodes (
+                        id, project_id, user_id, source, title, description,
+                        severity, cvss, cwe_ids, remediation,
+                        cve_id, package, version, ecosystem, epss, kev,
+                        fixed_version, osv_url,
+                        attack_vector, attack_complexity, privileges_required,
+                        user_interaction, scope,
+                        file_path, line_start, line_end, vuln_category,
+                        affected_code, centrality_score
+                    ) VALUES (
+                        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+                        $15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29
+                    )
+                    """,
+                    [
+                        (
+                            uuid.UUID(n["id"]), pid, user_id, n["source"],
+                            n["title"], n["description"],
+                            n["severity"], n["cvss"], n["cwe_ids"], n["remediation"],
+                            n["cve_id"], n["package"], n["version"], n["ecosystem"],
+                            n["epss"], n["kev"],
+                            n["fixed_version"], n["osv_url"],
+                            n["attack_vector"], n["attack_complexity"],
+                            n["privileges_required"], n["user_interaction"], n["scope"],
+                            n["file_path"], n["line_start"], n["line_end"],
+                            n["vuln_category"], n["affected_code"], n["centrality_score"],
+                        )
+                        for n in all_nodes
+                    ],
+                )
+
+            # Bulk-insert edges
+            if edge_records:
+                await conn.executemany(
+                    """
+                    INSERT INTO vuln_edges (id, project_id, source_id, target_id, edge_type, confidence, description)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ON CONFLICT (source_id, target_id, edge_type) DO NOTHING
+                    """,
+                    [
+                        (
+                            uuid.UUID(er["id"]), pid,
+                            uuid.UUID(er["source_id"]), uuid.UUID(er["target_id"]),
+                            er["edge_type"], er["confidence"], er["description"],
+                        )
+                        for er in edge_records
+                    ],
+                )
+
+            await conn.execute(
+                "UPDATE projects SET status = 'analyzed', updated_at = now() WHERE id = $1",
+                pid,
+            )
+
+    # ── 8. Build response ─────────────────────────────────────────────────────
+    vuln_nodes = [VulnNode(**{k: v for k, v in n.items()}) for n in all_nodes]
+    vuln_edges = [VulnEdge(**er) for er in edge_records]
+
+    return AnalyzeResponse(
+        project_id=str(pid),
+        ecosystem=project.ecosystem,
+        report=report,
+        vulnerabilities=flat_vulns,
+        graph=VulnGraph(nodes=vuln_nodes, edges=vuln_edges),
+        summary=summary,
+    )
+
+
+# ── routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/")
 def read_root():
@@ -186,16 +515,11 @@ async def update_project(
                 WHERE id = $1 AND user_id = $2
                 RETURNING *
                 """,
-                pid,
-                user_id,
-                name,
-                project_data.description,
-                project_data.github_url,
-                ecosystem,
+                pid, user_id, name, project_data.description,
+                project_data.github_url, ecosystem,
                 [f.model_dump() for f in files],
             )
         else:
-            name = project_data.name or ""
             row = await conn.fetchrow(
                 """
                 UPDATE projects
@@ -203,9 +527,8 @@ async def update_project(
                 WHERE id = $1 AND user_id = $2
                 RETURNING *
                 """,
-                pid,
-                user_id,
-                name,
+                pid, user_id,
+                project_data.name or "",
                 project_data.description,
             )
 
@@ -229,11 +552,79 @@ async def delete_project(
     return {"message": "Project deleted successfully"}
 
 
-@app.post("/projects/{project_id}/analyze", response_model=AnalyzeResponse)
-async def analyze_project(
+@app.get("/projects/{project_id}/vulnerabilities", response_model=AnalyzeResponse)
+async def get_vulnerabilities(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return cached vulnerability analysis, or kick off analysis and return 'analyzing'."""
+    pool = await db.get_pool()
+    pid = uuid.UUID(project_id)
+
+    async with pool.acquire() as conn:
+        project_row = await conn.fetchrow(
+            "SELECT * FROM projects WHERE id = $1 AND user_id = $2", pid, user_id
+        )
+    if not project_row:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    async with pool.acquire() as conn:
+        cached = await conn.fetchrow("SELECT * FROM analyses WHERE project_id = $1", pid)
+        if cached:
+            graph = await _load_graph(conn, pid)
+            return _row_to_analysis(cached, graph)
+
+    # Not cached — kick off background analysis if not already running.
+    str_pid = str(pid)
+    if str_pid not in _running:
+        _running.add(str_pid)
+        # Mark project as "analyzing" so the frontend can distinguish states.
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE projects SET status = 'analyzing', updated_at = now() WHERE id = $1", pid
+            )
+        background_tasks.add_task(_analyze_in_background, _row_to_project(project_row), user_id, pid)
+
+    return AnalyzeResponse(
+        project_id=str_pid,
+        status="analyzing",
+        ecosystem=project_row["ecosystem"],
+    )
+
+
+@app.get("/projects/{project_id}/graph", response_model=VulnGraph)
+async def get_graph(
     project_id: str,
     user_id: str = Depends(get_current_user_id),
 ):
+    """Return the exploit-chain graph for a project (nodes + edges)."""
+    pool = await db.get_pool()
+    pid = uuid.UUID(project_id)
+
+    async with pool.acquire() as conn:
+        project_row = await conn.fetchrow(
+            "SELECT id FROM projects WHERE id = $1 AND user_id = $2", pid, user_id
+        )
+        if not project_row:
+            raise HTTPException(status_code=404, detail="Project not found")
+        graph = await _load_graph(conn, pid)
+
+    if graph is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No graph data yet. Run /analyze first.",
+        )
+    return graph
+
+
+@app.post("/projects/{project_id}/analyze", response_model=AnalyzeResponse)
+async def analyze_project(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Force a fresh analysis, overwriting any cached result."""
     pool = await db.get_pool()
     pid = uuid.UUID(project_id)
 
@@ -244,62 +635,19 @@ async def analyze_project(
     if not row:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    project = _row_to_project(row)
-    if not project.files:
-        raise HTTPException(
-            status_code=400,
-            detail="Project has no lockfile to analyze. Add a lockfile first.",
-        )
-
-    packages: list[dict] = []
-    for f in project.files:
-        packages.extend(osv.parse_lockfile(f.filename, f.content))
-
-    raw_vulns = await osv.run_ingest(packages)
-    vulnerabilities = [Vulnerability(**v) for v in raw_vulns]
-
-    try:
-        report = await analyze.generate_report(vulnerabilities)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-
-    summary = {
-        "total_packages": len(packages),
-        "vulnerable_packages": len({v.package for v in vulnerabilities}),
-        "total_cves": len(vulnerabilities),
-        "kev_count": sum(1 for v in vulnerabilities if v.kev),
-    }
-
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO analyses (project_id, user_id, ecosystem, report, vulnerabilities, summary)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (project_id) DO UPDATE
-            SET user_id = EXCLUDED.user_id,
-                ecosystem = EXCLUDED.ecosystem,
-                report = EXCLUDED.report,
-                vulnerabilities = EXCLUDED.vulnerabilities,
-                summary = EXCLUDED.summary
-            """,
-            pid,
-            user_id,
-            project.ecosystem,
-            report.model_dump() if report else None,
-            [v.model_dump() for v in vulnerabilities],
-            summary,
-        )
-        await conn.execute(
-            "UPDATE projects SET status = 'analyzed', updated_at = now() WHERE id = $1",
-            pid,
-        )
+    str_pid = str(pid)
+    if str_pid not in _running:
+        _running.add(str_pid)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE projects SET status = 'analyzing', updated_at = now() WHERE id = $1", pid
+            )
+        background_tasks.add_task(_analyze_in_background, _row_to_project(row), user_id, pid)
 
     return AnalyzeResponse(
-        project_id=project_id,
-        ecosystem=project.ecosystem,
-        report=report,
-        vulnerabilities=vulnerabilities,
-        summary=summary,
+        project_id=str_pid,
+        status="analyzing",
+        ecosystem=row["ecosystem"],
     )
 
 
@@ -313,8 +661,7 @@ async def get_analysis(
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT * FROM analyses WHERE project_id = $1 AND user_id = $2",
-            pid,
-            user_id,
+            pid, user_id,
         )
     if not row:
         raise HTTPException(status_code=404, detail="No analysis found for this project")

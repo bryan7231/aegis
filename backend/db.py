@@ -54,6 +54,8 @@ async def _create_schema(pool: asyncpg.Pool) -> None:
         await conn.execute("""
             ALTER TABLE projects ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''
         """)
+
+        # analyses — narrative report + flat vuln list for backward compat
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS analyses (
                 project_id      UUID PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
@@ -67,9 +69,62 @@ async def _create_schema(pool: asyncpg.Pool) -> None:
         await conn.execute("""
             ALTER TABLE analyses ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT ''
         """)
+
+        # vuln_nodes — one row per vulnerability (dep or code)
         await conn.execute("""
-            CREATE INDEX IF NOT EXISTS projects_user_id_idx ON projects (user_id)
+            CREATE TABLE IF NOT EXISTS vuln_nodes (
+                id                  UUID PRIMARY KEY,
+                project_id          UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                user_id             TEXT NOT NULL,
+                source              TEXT NOT NULL,
+                title               TEXT NOT NULL,
+                description         TEXT,
+                severity            TEXT,
+                cvss                FLOAT,
+                cwe_ids             TEXT[] NOT NULL DEFAULT '{}',
+                remediation         TEXT,
+                cve_id              TEXT,
+                package             TEXT,
+                version             TEXT,
+                ecosystem           TEXT,
+                epss                FLOAT,
+                kev                 BOOLEAN NOT NULL DEFAULT FALSE,
+                fixed_version       TEXT,
+                osv_url             TEXT,
+                attack_vector       TEXT,
+                attack_complexity   TEXT,
+                privileges_required TEXT,
+                user_interaction    TEXT,
+                scope               TEXT,
+                file_path           TEXT,
+                line_start          INT,
+                line_end            INT,
+                vuln_category       TEXT,
+                affected_code       TEXT,
+                centrality_score    FLOAT NOT NULL DEFAULT 0.0,
+                created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
         """)
+
+        # vuln_edges — directed exploit-chain edges between nodes
         await conn.execute("""
-            CREATE INDEX IF NOT EXISTS analyses_user_id_idx ON analyses (user_id)
+            CREATE TABLE IF NOT EXISTS vuln_edges (
+                id              UUID PRIMARY KEY,
+                project_id      UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                source_id       UUID NOT NULL REFERENCES vuln_nodes(id) ON DELETE CASCADE,
+                target_id       UUID NOT NULL REFERENCES vuln_nodes(id) ON DELETE CASCADE,
+                edge_type       TEXT NOT NULL,
+                confidence      FLOAT NOT NULL DEFAULT 0.5,
+                description     TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE(source_id, target_id, edge_type)
+            )
         """)
+
+        for stmt in [
+            "CREATE INDEX IF NOT EXISTS projects_user_id_idx ON projects (user_id)",
+            "CREATE INDEX IF NOT EXISTS analyses_user_id_idx ON analyses (user_id)",
+            "CREATE INDEX IF NOT EXISTS vuln_nodes_project_idx ON vuln_nodes (project_id)",
+            "CREATE INDEX IF NOT EXISTS vuln_edges_project_idx ON vuln_edges (project_id)",
+        ]:
+            await conn.execute(stmt)
