@@ -4,11 +4,13 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 from models import (
+    LockfileInput,
     Project,
     ProjectCreate,
     Vulnerability,
     AnalyzeResponse,
 )
+import github
 import osv
 import analyze
 
@@ -33,21 +35,52 @@ def read_root():
     return {"message": "Aegis Backend API"}
 
 
-@app.post("/projects", response_model=Project)
-def create_project(project_data: ProjectCreate):
-    """Create a new project, optionally with lockfile(s) to analyze."""
-    files = project_data.files or []
-    ecosystem = None
+async def _resolve_files(project_data: ProjectCreate) -> list[LockfileInput]:
+    """Resolve the lockfiles for a project from its GitHub repo link.
+
+    Fetches lockfiles from the (public) repo when ``repo_url`` is set, and
+    raises HTTP 400 if the repo is private / missing / not a GitHub URL, or if
+    it contains no supported lockfiles. Directly-supplied ``files`` are kept too.
+    """
+    files: list[LockfileInput] = list(project_data.files or [])
+
+    if project_data.repo_url:
+        try:
+            fetched = await github.fetch_lockfiles(project_data.repo_url)
+        except github.GitHubError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        files.extend(LockfileInput(**f) for f in fetched)
+        if not files:
+            raise HTTPException(
+                status_code=400,
+                detail="No supported lockfiles found in the repository.",
+            )
+
+    return files
+
+
+def _detect_ecosystem(files: list[LockfileInput]) -> str | None:
     for f in files:
         ecosystem = osv.detect_ecosystem(f.filename)
         if ecosystem:
-            break
+            return ecosystem
+    return None
+
+
+@app.post("/projects", response_model=Project)
+async def create_project(project_data: ProjectCreate):
+    """Create a new project from a public GitHub repository link.
+
+    Lockfiles are fetched from the repo; a private/missing repo returns 400.
+    """
+    files = await _resolve_files(project_data)
 
     project = Project(
         name=project_data.name,
         description=project_data.description,
+        repo_url=project_data.repo_url,
         files=files,
-        ecosystem=ecosystem,
+        ecosystem=_detect_ecosystem(files),
     )
     projects_db[project.id] = project
     return project
@@ -68,16 +101,21 @@ def get_project(project_id: str):
 
 
 @app.put("/projects/{project_id}", response_model=Project)
-def update_project(project_id: str, project_data: ProjectCreate):
-    """Update a project."""
+async def update_project(project_id: str, project_data: ProjectCreate):
+    """Update a project. Re-fetches lockfiles when a repo link is provided."""
     if project_id not in projects_db:
         raise HTTPException(status_code=404, detail="Project not found")
 
     project = projects_db[project_id]
     project.name = project_data.name
     project.description = project_data.description
-    if project_data.files is not None:
-        project.files = project_data.files
+
+    if project_data.repo_url or project_data.files is not None:
+        files = await _resolve_files(project_data)
+        project.repo_url = project_data.repo_url
+        project.files = files
+        project.ecosystem = _detect_ecosystem(files)
+
     project.updated_at = datetime.utcnow()
     projects_db[project_id] = project
     return project
