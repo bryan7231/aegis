@@ -1,0 +1,125 @@
+.vulns-page {
+  text-align: left;
+  padding: 24px 32px;
+  width: 100%;
+  box-sizing: border-box;
+
+  @media (max-width: 1024px) {
+    padding: 16px;
+  }
+}
+
+.vulns-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.vulns-count {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.vulns-state {
+  padding: 48px 32px;
+  text-align: center;
+  color: var(--text);
+}
+
+.vulns-error {
+  color: #e5484d;
+}
+
+.vulns-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.vulns-table th,
+.vulns-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.vulns-table th {
+  font-weight: 500;
+  color: var(--text-h);
+  cursor: pointer;
+  user-select: none;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+}
+
+.vulns-table th.num,
+.vulns-table td.num {
+  text-align: right;
+}
+
+.vulns-table tbody tr:hover {
+  background: var(--social-bg);
+}
+
+.vulns-table .mono {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+.vulns-table .dim {
+  color: var(--text);
+}
+
+.vulns-table a.mono {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.vulns-table a.mono:hover {
+  text-decoration: underline;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: capitalize;
+  line-height: 1.4;
+}
+
+.badge-critical {
+  background: rgba(229, 72, 77, 0.15);
+  color: #e5484d;
+}
+
+.badge-high {
+  background: rgba(255, 138, 0, 0.15);
+  color: #f76808;
+}
+
+.badge-medium {
+  background: rgba(245, 183, 0, 0.18);
+  color: #cc9500;
+}
+
+.badge-low {
+  background: rgba(70, 167, 88, 0.15);
+  color: #46a758;
+}
+
+.badge-unknown {
+  background: var(--social-bg);
+  color: var(--text);
+}
+
+.badge-kev {
+  background: rgba(229, 72, 77, 0.9);
+  color: #fff;
+  text-transform: none;
+}
