@@ -4,10 +4,11 @@ import { ArrowLeft } from "lucide-react";
 import { getProjectVulnerabilities } from "@/lib/api";
 import type { AnalysisResult, Vulnerability } from "@/types/project";
 import { VulnGraphView } from "@/components/VulnGraphView";
+import { TriageView } from "@/components/TriageView";
 
 type SortKey = "package" | "cve_id" | "cvss" | "epss" | "kev" | "severity";
 type SortDir = "asc" | "desc";
-type Tab = "vulnerabilities" | "graph";
+type Tab = "triage" | "vulnerabilities" | "graph";
 
 const SEVERITY_RANK: Record<string, number> = {
   critical: 4,
@@ -57,7 +58,7 @@ export function ProjectPage() {
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("cvss");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [tab, setTab] = useState<Tab>("vulnerabilities");
+  const [tab, setTab] = useState<Tab>("triage");
 
   useEffect(() => {
     let cancelled = false;
@@ -163,28 +164,83 @@ export function ProjectPage() {
 
           {/* Tabs */}
           <div className="mb-5 flex gap-1 border-b border-border">
-            {(["vulnerabilities", "graph"] as Tab[]).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={[
-                  "px-4 py-2 text-sm font-medium transition-colors",
-                  tab === t
-                    ? "border-b-2 border-primary text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                ].join(" ")}
-              >
-                {t === "vulnerabilities" ? "Vulnerabilities" : "Exploit Graph"}
-                {t === "graph" && hasGraph && (
-                  <span className="ml-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
-                    {analysis.graph!.nodes.length}
-                  </span>
-                )}
-              </button>
-            ))}
+            {(["triage", "vulnerabilities", "graph"] as Tab[]).map((t) => {
+              const labels: Record<Tab, string> = {
+                triage: "Triage",
+                vulnerabilities: "All CVEs",
+                graph: "Exploit Graph",
+              };
+              const triageCount = hasGraph
+                ? analysis.graph!.nodes.length
+                : analysis.vulnerabilities.length;
+              return (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={[
+                    "px-4 py-2 text-sm font-medium transition-colors",
+                    tab === t
+                      ? "border-b-2 border-primary text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  ].join(" ")}
+                >
+                  {labels[t]}
+                  {t === "triage" && triageCount > 0 && (
+                    <span className="ml-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
+                      {triageCount}
+                    </span>
+                  )}
+                  {t === "graph" && hasGraph && (
+                    <span className="ml-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
+                      {analysis.graph!.edges.length} chains
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Vulnerabilities tab */}
+          {/* Triage tab */}
+          {tab === "triage" && (
+            <TriageView
+              nodes={
+                hasGraph
+                  ? analysis.graph!.nodes
+                  : analysis.vulnerabilities.map((v) => ({
+                      id: v.cve_id + v.package + v.version,
+                      source: "dependency" as const,
+                      title: v.cve_id,
+                      description: v.summary ?? null,
+                      severity: v.severity,
+                      cvss: v.cvss,
+                      cwe_ids: v.cwe_ids ?? [],
+                      remediation: v.fixed_version ? `Upgrade to ${v.fixed_version}` : null,
+                      centrality_score: 0,
+                      cve_id: v.cve_id,
+                      package: v.package,
+                      version: v.version,
+                      ecosystem: v.ecosystem,
+                      epss: v.epss,
+                      kev: v.kev,
+                      fixed_version: v.fixed_version,
+                      osv_url: v.osv_url,
+                      attack_vector: v.attack_vector ?? null,
+                      attack_complexity: v.attack_complexity ?? null,
+                      privileges_required: v.privileges_required ?? null,
+                      user_interaction: v.user_interaction ?? null,
+                      scope: v.scope ?? null,
+                      file_path: null,
+                      line_start: null,
+                      line_end: null,
+                      vuln_category: null,
+                      affected_code: null,
+                    }))
+              }
+              edges={analysis.graph?.edges ?? []}
+            />
+          )}
+
+          {/* All CVEs tab */}
           {tab === "vulnerabilities" && (
             <>
               {analysis.vulnerabilities.length === 0 ? (
