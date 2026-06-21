@@ -1,20 +1,20 @@
-import { useState } from 'react'
-import VulnerabilitiesPage from './VulnerabilitiesPage'
-import './App.css'
+import { useState } from "react";
+import VulnerabilitiesPage from "../VulnerabilitiesPage";
+import "./App.css";
 
 function App() {
-  const [input, setInput] = useState('')
-  const [projectId, setProjectId] = useState('')
+  const [input, setInput] = useState("");
+  const [projectId, setProjectId] = useState("");
 
   return (
     <div className="app">
       <header className="app-bar">
-        <h1 className="app-title">ChainBreak</h1>
+        <h1 className="app-title">Aegis</h1>
         <form
           className="project-picker"
           onSubmit={(e) => {
-            e.preventDefault()
-            setProjectId(input.trim())
+            e.preventDefault();
+            setProjectId(input.trim());
           }}
         >
           <input
@@ -35,7 +35,7 @@ function App() {
         </div>
       )}
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
