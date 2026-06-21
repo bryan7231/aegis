@@ -552,7 +552,7 @@ async def get_projects(user_id: str = Depends(get_current_user_id)):
         )
         shared_rows = await conn.fetch(
             """
-            SELECT p.*, true AS is_shared, s.owner_email AS shared_by_email
+            SELECT p.*, true AS is_shared, s.owner_email AS shared_by_email, s.owner_id AS share_owner_id
             FROM projects p
             JOIN project_shares s ON s.project_id = p.id
             WHERE s.shared_with_user_id = $1
@@ -572,8 +572,24 @@ async def get_projects(user_id: str = Depends(get_current_user_id)):
             "created_at": s["created_at"].isoformat() if s["created_at"] else None,
         })
 
+    # Resolve missing owner emails via Clerk API (handles shares created before owner_email was stored)
+    owner_email_cache: dict[str, str] = {}
+    for r in shared_rows:
+        if not r["shared_by_email"] and r["share_owner_id"]:
+            oid = r["share_owner_id"]
+            if oid not in owner_email_cache:
+                email = await _clerk_email_from_user_id(oid)
+                if email:
+                    owner_email_cache[oid] = email
+
     result = [_row_to_project(r, shares=shares_map.get(str(r["id"]))) for r in own_rows]
-    result += [_row_to_project(r, shared_by_email=r["shared_by_email"]) for r in shared_rows]
+    result += [
+        _row_to_project(
+            r,
+            shared_by_email=r["shared_by_email"] or owner_email_cache.get(r["share_owner_id"]),
+        )
+        for r in shared_rows
+    ]
     return result
 
 
@@ -875,8 +891,8 @@ async def get_addressed(
     async with pool.acquire() as conn:
         await _get_accessible_project(conn, pid, user_id)
         rows = await conn.fetch(
-            "SELECT node_id FROM addressed_vulns WHERE project_id = $1 AND user_id = $2",
-            pid, user_id,
+            "SELECT node_id FROM addressed_vulns WHERE project_id = $1",
+            pid,
         )
     return {"node_ids": [str(r["node_id"]) for r in rows]}
 
@@ -896,7 +912,7 @@ async def mark_addressed(
             """
             INSERT INTO addressed_vulns (id, project_id, user_id, node_id)
             VALUES ($1, $2, $3, $4)
-            ON CONFLICT (project_id, user_id, node_id) DO NOTHING
+            ON CONFLICT (project_id, node_id) DO NOTHING
             """,
             uuid.uuid4(), pid, user_id, nid,
         )
@@ -915,8 +931,8 @@ async def unmark_addressed(
     async with pool.acquire() as conn:
         await _get_accessible_project(conn, pid, user_id)
         await conn.execute(
-            "DELETE FROM addressed_vulns WHERE project_id = $1 AND user_id = $2 AND node_id = $3",
-            pid, user_id, nid,
+            "DELETE FROM addressed_vulns WHERE project_id = $1 AND node_id = $2",
+            pid, nid,
         )
     return {"addressed": False}
 

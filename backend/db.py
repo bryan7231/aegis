@@ -134,16 +134,35 @@ async def _create_schema(pool: asyncpg.Pool) -> None:
             )
         """)
 
-        # addressed_vulns — per-user checklist of resolved vulnerability nodes
+        # addressed_vulns — project-wide checklist of resolved vulnerability nodes
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS addressed_vulns (
                 id          UUID PRIMARY KEY,
                 project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                 user_id     TEXT NOT NULL,
                 node_id     UUID NOT NULL REFERENCES vuln_nodes(id) ON DELETE CASCADE,
-                created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-                UNIQUE (project_id, user_id, node_id)
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
             )
+        """)
+        # Migrate: drop per-user constraint if it still exists
+        await conn.execute("""
+            ALTER TABLE addressed_vulns
+            DROP CONSTRAINT IF EXISTS addressed_vulns_project_id_user_id_node_id_key
+        """)
+        # Deduplicate rows before adding new constraint (keep oldest per project+node)
+        await conn.execute("""
+            DELETE FROM addressed_vulns a
+            WHERE a.id != (
+                SELECT a2.id FROM addressed_vulns a2
+                WHERE a2.project_id = a.project_id AND a2.node_id = a.node_id
+                ORDER BY a2.created_at ASC
+                LIMIT 1
+            )
+        """)
+        # IF NOT EXISTS is natively idempotent — no DO block needed
+        await conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS addressed_vulns_project_id_node_id_key
+            ON addressed_vulns (project_id, node_id)
         """)
 
         # project_shares — grant read access to another Clerk user by email

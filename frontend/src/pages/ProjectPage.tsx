@@ -13,8 +13,6 @@ import { TriageView } from "@/components/TriageView";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
 } from "@/components/ui/dialog";
 
 type SortKey = "package" | "cve_id" | "cvss" | "epss" | "kev" | "severity";

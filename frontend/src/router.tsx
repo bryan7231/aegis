@@ -10,6 +10,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { configureAuth } from "@/lib/api";
 import App from "./pages/App";
 import { ProjectPage } from "./pages/ProjectPage";
+import { LandingPage } from "./pages/LandingPage";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
 
@@ -23,7 +24,7 @@ function AuthLayout() {
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) {
-      navigate({ to: "/sign-in", replace: true });
+      navigate({ to: "/landing", replace: true });
     }
   }, [isLoaded, isSignedIn, navigate]);
 
@@ -34,6 +35,12 @@ function AuthLayout() {
 }
 
 const rootRoute = createRootRoute();
+
+const landingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/landing",
+  component: LandingPage,
+});
 
 const authRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -66,6 +73,7 @@ const signUpRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
+  landingRoute,
   authRoute.addChildren([indexRoute, projectRoute]),
   signInRoute,
   signUpRoute,

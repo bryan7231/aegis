@@ -1,6 +1,6 @@
 import { useRef, useState, type SetStateAction } from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowUpRight, ShieldCheck, Trash2, Share2 } from "lucide-react";
+import { ShieldCheck, Trash2, Share2 } from "lucide-react";
 import type { Project } from "@/types/project";
 import { Badge } from "@/components/ui/badge";
 
