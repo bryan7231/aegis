@@ -1,15 +1,24 @@
 import type { CreateProjectRequest, Project } from "@/types/project";
 
-const API_BASE = import.meta.env.API_URL;
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
+
+type TokenGetter = () => Promise<string | null>;
+let _getToken: TokenGetter | null = null;
+
+export function configureAuth(fn: TokenGetter) {
+  _getToken = fn;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = _getToken ? await _getToken() : null;
+
   const response = await fetch(`${API_BASE}${path}`, {
-    credentials: "include",
+    ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },
-    ...init,
   });
 
   if (!response.ok) {

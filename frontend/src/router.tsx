@@ -7,14 +7,19 @@ import {
 import { useAuth } from "@clerk/react";
 import { useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { configureAuth } from "@/lib/api";
 import App from "./pages/App";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
 import { UserTab } from "@/components/UserTab";
 
 function AuthLayout() {
-  const { isSignedIn, isLoaded } = useAuth();
+  const { isSignedIn, isLoaded, getToken } = useAuth();
   const navigate = useNavigate();
+
+  // Called during render (not useEffect) so _getToken is set before
+  // any child component's useEffect fires and makes API requests.
+  configureAuth(getToken);
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) {

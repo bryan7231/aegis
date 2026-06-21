@@ -10,11 +10,9 @@ class LockfileInput(BaseModel):
 
 
 class ProjectCreate(BaseModel):
-    name: str
+    github_url: str
+    name: Optional[str] = None
     description: Optional[str] = None
-    # A public GitHub repo link is the primary input — lockfiles are fetched
-    # from it. `files` may still be passed directly (e.g. for tests).
-    repo_url: Optional[str] = None
     files: Optional[list[LockfileInput]] = None
 
 
