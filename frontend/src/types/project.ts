@@ -101,3 +101,10 @@ export type Project = {
 export type CreateProjectRequest = {
   github_url: string
 }
+
+export type RemediationPlan = {
+  node_id: string
+  plan: string
+  created_at: string | null
+  cached: boolean
+}

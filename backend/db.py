@@ -121,10 +121,24 @@ async def _create_schema(pool: asyncpg.Pool) -> None:
             )
         """)
 
+        # remediation_plans — one cached plan per vulnerability node
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS remediation_plans (
+                id          UUID PRIMARY KEY,
+                node_id     UUID NOT NULL REFERENCES vuln_nodes(id) ON DELETE CASCADE,
+                project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                user_id     TEXT NOT NULL,
+                plan        TEXT NOT NULL,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE (node_id)
+            )
+        """)
+
         for stmt in [
             "CREATE INDEX IF NOT EXISTS projects_user_id_idx ON projects (user_id)",
             "CREATE INDEX IF NOT EXISTS analyses_user_id_idx ON analyses (user_id)",
             "CREATE INDEX IF NOT EXISTS vuln_nodes_project_idx ON vuln_nodes (project_id)",
             "CREATE INDEX IF NOT EXISTS vuln_edges_project_idx ON vuln_edges (project_id)",
+            "CREATE INDEX IF NOT EXISTS remediation_plans_project_idx ON remediation_plans (project_id)",
         ]:
             await conn.execute(stmt)

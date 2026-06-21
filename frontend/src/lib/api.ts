@@ -1,4 +1,4 @@
-import type { AnalysisResult, CreateProjectRequest, Project, VulnGraph } from "@/types/project";
+import type { AnalysisResult, CreateProjectRequest, Project, RemediationPlan, VulnGraph } from "@/types/project";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
@@ -50,4 +50,12 @@ export function getProjectGraph(projectId: string): Promise<VulnGraph> {
 
 export async function deleteProject(projectId: string): Promise<void> {
   await request<unknown>(`/projects/${projectId}`, { method: "DELETE" });
+}
+
+export function getRemediationPlan(projectId: string, nodeId: string): Promise<RemediationPlan> {
+  return request<RemediationPlan>(`/projects/${projectId}/nodes/${nodeId}/plan`);
+}
+
+export function regenerateRemediationPlan(projectId: string, nodeId: string): Promise<RemediationPlan> {
+  return request<RemediationPlan>(`/projects/${projectId}/nodes/${nodeId}/plan`, { method: "POST" });
 }

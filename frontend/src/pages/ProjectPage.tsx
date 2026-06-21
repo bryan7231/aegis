@@ -203,6 +203,7 @@ export function ProjectPage() {
           {/* Triage tab */}
           {tab === "triage" && (
             <TriageView
+              projectId={projectId}
               nodes={
                 hasGraph
                   ? analysis.graph!.nodes

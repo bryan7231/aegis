@@ -22,6 +22,7 @@ import github
 import osv
 import analyze
 import code_scan
+import remediation
 
 load_dotenv()
 
@@ -649,6 +650,122 @@ async def analyze_project(
         status="analyzing",
         ecosystem=row["ecosystem"],
     )
+
+
+@app.get("/projects/{project_id}/nodes/{node_id}/plan")
+async def get_remediation_plan(
+    project_id: str,
+    node_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Return the cached remediation plan for a node, or generate and cache one."""
+    pool = await db.get_pool()
+    pid = uuid.UUID(project_id)
+    nid = uuid.UUID(node_id)
+
+    async with pool.acquire() as conn:
+        if not await conn.fetchrow(
+            "SELECT id FROM projects WHERE id = $1 AND user_id = $2", pid, user_id
+        ):
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        cached = await conn.fetchrow(
+            "SELECT plan, created_at FROM remediation_plans WHERE node_id = $1", nid
+        )
+        if cached:
+            return {
+                "node_id": str(nid),
+                "plan": cached["plan"],
+                "created_at": cached["created_at"].isoformat(),
+                "cached": True,
+            }
+
+        node_row = await conn.fetchrow(
+            "SELECT * FROM vuln_nodes WHERE id = $1 AND project_id = $2", nid, pid
+        )
+        if not node_row:
+            raise HTTPException(status_code=404, detail="Vulnerability node not found")
+
+        edge_rows = await conn.fetch(
+            """
+            SELECT e.description, e.edge_type,
+                   n.title, n.cve_id, n.package, n.version,
+                   n.file_path, n.severity, n.source
+            FROM vuln_edges e
+            JOIN vuln_nodes n ON (
+                CASE WHEN e.source_id = $1 THEN e.target_id ELSE e.source_id END = n.id
+            )
+            WHERE (e.source_id = $1 OR e.target_id = $1)
+              AND e.project_id = $2
+            """,
+            nid, pid,
+        )
+
+        proj_row = await conn.fetchrow("SELECT repo_url FROM projects WHERE id = $1", pid)
+
+    node_dict = dict(node_row)
+    connected = [
+        {
+            "cve_id": r["cve_id"],
+            "title": r["title"],
+            "package": r["package"],
+            "version": r["version"],
+            "file_path": r["file_path"],
+            "severity": r["severity"],
+            "source": r["source"],
+        }
+        for r in edge_rows
+    ]
+    edge_descriptions = [r["description"] or r["edge_type"] for r in edge_rows]
+
+    try:
+        plan = await remediation.generate_plan(
+            node=node_dict,
+            connected=connected,
+            edge_descriptions=edge_descriptions,
+            repo_url=proj_row["repo_url"] or "",
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Plan generation failed: {e}")
+
+    plan_id = uuid.uuid4()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO remediation_plans (id, node_id, project_id, user_id, plan)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (node_id) DO UPDATE SET plan = EXCLUDED.plan, created_at = now()
+            """,
+            plan_id, nid, pid, user_id, plan,
+        )
+
+    return {"node_id": str(nid), "plan": plan, "created_at": None, "cached": False}
+
+
+@app.post("/projects/{project_id}/nodes/{node_id}/plan")
+async def regenerate_remediation_plan(
+    project_id: str,
+    node_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """Force-regenerate the remediation plan for a node, overwriting any cached version."""
+    pool = await db.get_pool()
+    pid = uuid.UUID(project_id)
+    nid = uuid.UUID(node_id)
+
+    async with pool.acquire() as conn:
+        if not await conn.fetchrow(
+            "SELECT id FROM projects WHERE id = $1 AND user_id = $2", pid, user_id
+        ):
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Delete cached plan to force regen via the GET endpoint logic
+        await conn.execute("DELETE FROM remediation_plans WHERE node_id = $1", nid)
+
+    # Reuse the GET handler logic
+    return await get_remediation_plan(project_id, node_id, user_id)
 
 
 @app.get("/projects/{project_id}/analysis", response_model=AnalyzeResponse)
