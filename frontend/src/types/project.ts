@@ -15,12 +15,6 @@ export type Project = {
   summary?: ProjectSummary
 }
 
-export type CreateProjectFile = {
-  filename: string
-  content: string
-}
-
 export type CreateProjectRequest = {
-  name: string
-  files: CreateProjectFile[]
+  github_url: string
 }

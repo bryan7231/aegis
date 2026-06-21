@@ -2,7 +2,6 @@ import { SignUp } from "@clerk/react";
 import { useAuth } from "@clerk/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
-import "./auth.css";
 
 export default function SignUpPage() {
   const { isSignedIn, isLoaded } = useAuth();
@@ -15,11 +14,14 @@ export default function SignUpPage() {
   }, [isLoaded, isSignedIn, navigate]);
 
   return (
-    <div className="auth-page">
-      <h1 className="auth-brand">Aegis</h1>
+    <div className="flex min-h-svh flex-col items-center justify-center gap-6 px-4 py-8">
+      <h1 className="m-0 text-3xl font-semibold tracking-tight">Aegis</h1>
       <SignUp routing="hash" />
-      <p className="auth-switch">
-        Already have an account? <Link to="/sign-in">Sign in</Link>
+      <p className="m-0 text-sm text-muted-foreground">
+        Already have an account?{" "}
+        <Link to="/sign-in" className="text-primary hover:underline">
+          Sign in
+        </Link>
       </p>
     </div>
   );

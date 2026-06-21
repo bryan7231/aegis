@@ -65,7 +65,7 @@ export function Dashboard() {
             Projects
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Upload a lockfile to map attack paths across your dependencies.
+            Connect a public GitHub repository to map attack paths across your dependencies.
           </p>
         </div>
         <Button onClick={() => setModalOpen(true)}>
@@ -90,8 +90,8 @@ export function Dashboard() {
             No projects yet
           </h2>
           <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-            Create your first project by uploading a lockfile. We&apos;ll scan
-            it for known vulnerabilities and build your attack-path graph.
+            Create your first project by linking a public GitHub repository.
+            We&apos;ll scan it for known vulnerabilities and build your attack-path graph.
           </p>
           <Button className="mt-6" onClick={() => setModalOpen(true)}>
             <Plus className="h-4 w-4" />

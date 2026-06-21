@@ -21,7 +21,7 @@ function AuthLayout() {
     }
   }, [isLoaded, isSignedIn, navigate]);
 
-  if (!isLoaded) return <div className="auth-loading">Loading…</div>;
+  if (!isLoaded) return <div className="flex min-h-svh items-center justify-center text-muted-foreground">Loading…</div>;
   if (!isSignedIn) return null;
 
   return <Outlet />;
