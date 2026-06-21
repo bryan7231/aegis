@@ -16,6 +16,17 @@ class ProjectCreate(BaseModel):
     files: Optional[list[LockfileInput]] = None
 
 
+class ProjectShare(BaseModel):
+    id: str
+    project_id: str
+    shared_with_email: str
+    created_at: Optional[str] = None
+
+
+class ShareRequest(BaseModel):
+    email: str
+
+
 class Project(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
@@ -26,6 +37,8 @@ class Project(BaseModel):
     status: str = "pending"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    is_shared: bool = False
+    shares: list[ProjectShare] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

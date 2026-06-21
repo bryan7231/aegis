@@ -1,16 +1,8 @@
 import { useMemo, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { Copy, Download, RefreshCw, FileText } from "lucide-react";
+import { Check, FileText } from "lucide-react";
 import type { VulnNode, VulnEdge, RemediationPlan } from "@/types/project";
 import { getRemediationPlan, regenerateRemediationPlan } from "@/lib/api";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { PlanModal } from "@/components/PlanModal";
 
 // ── Scoring ───────────────────────────────────────────────────────────────────
 
@@ -129,150 +121,20 @@ function ScoreBar({
   );
 }
 
-// ── Plan modal ────────────────────────────────────────────────────────────────
-
-function PlanModal({
-  open,
-  onOpenChange,
-  plan,
-  loading,
-  error,
-  nodeTitle,
-  onRegenerate,
-  regenerating,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  plan: RemediationPlan | null;
-  loading: boolean;
-  error: string | null;
-  nodeTitle: string;
-  onRegenerate: () => void;
-  regenerating: boolean;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  function handleCopy() {
-    if (!plan) return;
-    navigator.clipboard.writeText(plan.plan).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-
-  function handleDownload() {
-    if (!plan) return;
-    const blob = new Blob([plan.plan], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `remediation-${nodeTitle.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col gap-0 p-0">
-        <DialogHeader className="flex-row items-center justify-between border-b border-border px-6 py-4">
-          <DialogTitle className="text-base font-semibold">
-            Fix Plan — <span className="font-mono">{nodeTitle}</span>
-          </DialogTitle>
-          <div className="flex items-center gap-2">
-            {plan?.cached && (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                cached
-              </span>
-            )}
-            {plan && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCopy}
-                  className="h-7 text-xs"
-                >
-                  <Copy className="mr-1 h-3 w-3" />
-                  {copied ? "Copied!" : "Copy"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDownload}
-                  className="h-7 text-xs"
-                >
-                  <Download className="mr-1 h-3 w-3" />
-                  .md
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onRegenerate}
-                  disabled={regenerating}
-                  className="h-7 text-xs"
-                >
-                  <RefreshCw
-                    className={`mr-1 h-3 w-3 ${regenerating ? "animate-spin" : ""}`}
-                  />
-                  Regen
-                </Button>
-              </>
-            )}
-          </div>
-        </DialogHeader>
-
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          {loading && (
-            <div className="flex flex-col items-center gap-3 py-16 text-center">
-              <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              <p className="text-sm text-muted-foreground">
-                Creating your remediation plan…
-              </p>
-              <p className="text-xs text-muted-foreground">
-                This usually takes 15–30 seconds.
-              </p>
-            </div>
-          )}
-
-          {error && !loading && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              {error}
-            </div>
-          )}
-
-          {plan && !loading && (
-            <div
-              className="prose prose-sm dark:prose-invert max-w-none
-              prose-headings:font-semibold prose-headings:tracking-tight
-              prose-h2:mt-6 prose-h2:text-base prose-h2:border-b prose-h2:border-border prose-h2:pb-1
-              prose-h3:mt-4 prose-h3:text-sm
-              prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-              prose-pre:bg-muted prose-pre:rounded-lg prose-pre:text-xs
-              prose-li:marker:text-muted-foreground
-              prose-a:text-primary
-            "
-            >
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {plan.plan}
-              </ReactMarkdown>
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ── Triage card ───────────────────────────────────────────────────────────────
 
 function TriageCard({
   scored,
   rank,
   projectId,
+  addressed,
+  onToggle,
 }: {
   scored: ScoredNode;
   rank: number;
   projectId?: string;
+  addressed: boolean;
+  onToggle: () => void;
 }) {
   const { node, edgeCount, score, components } = scored;
   const tier = nodeSeverity(node);
@@ -316,16 +178,29 @@ function TriageCard({
 
   return (
     <>
-      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className={`rounded-xl border bg-card p-5 shadow-sm transition-opacity ${addressed ? "border-border/50 opacity-50" : "border-border"}`}>
         {/* Header */}
         <div className="flex flex-wrap items-start gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-foreground">
-            {rank}
-          </div>
+          {/* Addressed checkbox */}
+          <button
+            onClick={onToggle}
+            title={addressed ? "Mark as not addressed" : "Mark as addressed"}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+              addressed
+                ? "border-green-500 bg-green-500/10 text-green-500"
+                : "border-border bg-muted text-muted-foreground hover:border-green-400 hover:text-green-500"
+            }`}
+          >
+            {addressed ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <span className="text-xs font-bold">{rank}</span>
+            )}
+          </button>
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-sm font-semibold text-foreground">
+              <span className={`font-mono text-sm font-semibold ${addressed ? "text-muted-foreground line-through" : "text-foreground"}`}>
                 {nodeTitle}
               </span>
               {node.package && (
@@ -481,10 +356,14 @@ export function TriageView({
   nodes,
   edges,
   projectId,
+  addressedIds = new Set(),
+  onToggle = () => {},
 }: {
   nodes: VulnNode[];
   edges: VulnEdge[];
   projectId?: string;
+  addressedIds?: Set<string>;
+  onToggle?: (id: string) => void;
 }) {
   const scored = useMemo<ScoredNode[]>(() => {
     const counts: Record<string, number> = {};
@@ -496,6 +375,9 @@ export function TriageView({
       .map((n) => scoreNode(n, counts[n.id] ?? 0))
       .sort((a, b) => b.score - a.score);
   }, [nodes, edges]);
+
+  const active = scored.filter((s) => !addressedIds.has(s.node.id));
+  const done = scored.filter((s) => addressedIds.has(s.node.id));
 
   if (scored.length === 0) {
     return (
@@ -510,16 +392,46 @@ export function TriageView({
       <p className="text-xs text-muted-foreground">
         Ranked by weighted score: severity (30%) · exploit-chain centrality
         (25%) · exploitation probability (20%) · active exploitation (15%) ·
-        network exposure (10%).
+        network exposure (10%). Click the rank circle to mark as addressed.
       </p>
-      {scored.map((s, idx) => (
+
+      {active.length === 0 && (
+        <div className="py-8 text-center text-sm text-muted-foreground">
+          All vulnerabilities addressed. 🎉
+        </div>
+      )}
+
+      {active.map((s, idx) => (
         <TriageCard
           key={s.node.id}
           scored={s}
           rank={idx + 1}
           projectId={projectId}
+          addressed={false}
+          onToggle={() => onToggle(s.node.id)}
         />
       ))}
+
+      {done.length > 0 && (
+        <details className="group">
+          <summary className="cursor-pointer list-none py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+            <span className="group-open:hidden">▶ Addressed ({done.length})</span>
+            <span className="hidden group-open:inline">▼ Addressed ({done.length})</span>
+          </summary>
+          <div className="mt-2 space-y-3">
+            {done.map((s) => (
+              <TriageCard
+                key={s.node.id}
+                scored={s}
+                rank={0}
+                projectId={projectId}
+                addressed={true}
+                onToggle={() => onToggle(s.node.id)}
+              />
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }

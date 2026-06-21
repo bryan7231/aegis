@@ -134,11 +134,39 @@ async def _create_schema(pool: asyncpg.Pool) -> None:
             )
         """)
 
+        # addressed_vulns — per-user checklist of resolved vulnerability nodes
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS addressed_vulns (
+                id          UUID PRIMARY KEY,
+                project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                user_id     TEXT NOT NULL,
+                node_id     UUID NOT NULL REFERENCES vuln_nodes(id) ON DELETE CASCADE,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE (project_id, user_id, node_id)
+            )
+        """)
+
+        # project_shares — grant read access to another Clerk user by email
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS project_shares (
+                id                  UUID PRIMARY KEY,
+                project_id          UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                owner_id            TEXT NOT NULL,
+                shared_with_email   TEXT NOT NULL,
+                shared_with_user_id TEXT,
+                created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE (project_id, shared_with_email)
+            )
+        """)
+
         for stmt in [
             "CREATE INDEX IF NOT EXISTS projects_user_id_idx ON projects (user_id)",
             "CREATE INDEX IF NOT EXISTS analyses_user_id_idx ON analyses (user_id)",
             "CREATE INDEX IF NOT EXISTS vuln_nodes_project_idx ON vuln_nodes (project_id)",
             "CREATE INDEX IF NOT EXISTS vuln_edges_project_idx ON vuln_edges (project_id)",
             "CREATE INDEX IF NOT EXISTS remediation_plans_project_idx ON remediation_plans (project_id)",
+            "CREATE INDEX IF NOT EXISTS addressed_vulns_project_user_idx ON addressed_vulns (project_id, user_id)",
+            "CREATE INDEX IF NOT EXISTS project_shares_project_idx ON project_shares (project_id)",
+            "CREATE INDEX IF NOT EXISTS project_shares_user_idx ON project_shares (shared_with_user_id)",
         ]:
             await conn.execute(stmt)

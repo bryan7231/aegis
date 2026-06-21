@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import type { Selection } from "d3";
 import * as d3 from "d3";
-import type { VulnNode, VulnEdge, VulnGraph } from "@/types/project";
-import { X } from "lucide-react";
+import { FileText, X } from "lucide-react";
+import type { VulnNode, VulnEdge, VulnGraph, RemediationPlan } from "@/types/project";
+import { getRemediationPlan, regenerateRemediationPlan } from "@/lib/api";
+import { PlanModal } from "@/components/PlanModal";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ── colour helpers ────────────────────────────────────────────────────────────
 
@@ -43,8 +48,47 @@ interface SimLink extends d3.SimulationLinkDatum<SimNode> {
 
 // ── Detail panel ──────────────────────────────────────────────────────────────
 
-function DetailPanel({ node, onClose }: { node: VulnNode; onClose: () => void }) {
+function DetailPanel({
+  node,
+  projectId,
+  onClose,
+}: {
+  node: VulnNode;
+  projectId?: string;
+  onClose: () => void;
+}) {
   const badge = "inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize";
+  const canPlan = !!projectId && UUID_RE.test(node.id);
+
+  const [planOpen, setPlanOpen] = useState(false);
+  const [plan, setPlan] = useState<RemediationPlan | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+
+  async function fetchPlan(forceRegen = false) {
+    if (!projectId) return;
+    setPlanLoading(true);
+    setPlanError(null);
+    setPlanOpen(true);
+    try {
+      const result = forceRegen
+        ? await regenerateRemediationPlan(projectId, node.id)
+        : await getRemediationPlan(projectId, node.id);
+      setPlan(result);
+    } catch (err) {
+      setPlanError(err instanceof Error ? err.message : "Failed to generate plan.");
+    } finally {
+      setPlanLoading(false);
+      setRegenerating(false);
+    }
+  }
+
+  async function handleRegenerate() {
+    setRegenerating(true);
+    setPlan(null);
+    await fetchPlan(true);
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card shadow-lg">
@@ -216,7 +260,31 @@ function DetailPanel({ node, onClose }: { node: VulnNode; onClose: () => void })
             <p className="text-xs leading-relaxed text-foreground">{node.remediation}</p>
           </div>
         )}
+
+        {/* Fix plan */}
+        {canPlan && (
+          <div className="pt-1">
+            <button
+              onClick={() => plan ? setPlanOpen(true) : fetchPlan()}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <FileText className="h-3 w-3" />
+              {plan ? "View fix plan" : "Get fix plan"}
+            </button>
+          </div>
+        )}
       </div>
+
+      <PlanModal
+        open={planOpen}
+        onOpenChange={setPlanOpen}
+        plan={plan}
+        loading={planLoading}
+        error={planError}
+        nodeTitle={node.cve_id ?? node.title}
+        onRegenerate={handleRegenerate}
+        regenerating={regenerating}
+      />
     </div>
   );
 }
@@ -245,9 +313,31 @@ function Legend() {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function VulnGraphView({ graph }: { graph: VulnGraph }) {
+export function VulnGraphView({
+  graph,
+  addressedIds = new Set(),
+  projectId,
+}: {
+  graph: VulnGraph;
+  addressedIds?: Set<string>;
+  projectId?: string;
+}) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const nodeGroupRef = useRef<Selection<SVGGElement, SimNode, SVGGElement, unknown> | null>(null);
   const [selectedNode, setSelectedNode] = useState<VulnNode | null>(null);
+
+  // Update node visuals when addressed set changes — no sim rebuild needed.
+  useEffect(() => {
+    const sel = nodeGroupRef.current;
+    if (!sel) return;
+    sel.select<SVGCircleElement>("circle")
+      .attr("fill", (d) => addressedIds.has(d.id) ? "#94a3b8" : nodeColor(d.data))
+      .attr("fill-opacity", (d) => addressedIds.has(d.id) ? 0.2 : 0.85)
+      .attr("stroke", (d) => addressedIds.has(d.id) ? "#94a3b8" : nodeColor(d.data))
+      .attr("stroke-opacity", (d) => addressedIds.has(d.id) ? 0.3 : 1);
+    sel.select<SVGTextElement>("text")
+      .attr("opacity", (d) => addressedIds.has(d.id) ? 0.3 : 1);
+  }, [addressedIds]);
 
   useEffect(() => {
     if (!svgRef.current || graph.nodes.length === 0) return;
@@ -332,12 +422,14 @@ export function VulnGraphView({ graph }: { graph: VulnGraph }) {
         setSelectedNode((prev) => prev?.id === d.id ? null : d.data);
       });
 
-    // Circle
+    // Circle — apply addressed state at build time so initial render is correct
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     node.append("circle")
       .attr("r", (d) => nodeRadius(d.data))
-      .attr("fill", (d) => nodeColor(d.data))
-      .attr("fill-opacity", 0.85)
-      .attr("stroke", (d) => nodeColor(d.data))
+      .attr("fill", (d) => addressedIds.has(d.id) ? "#94a3b8" : nodeColor(d.data))
+      .attr("fill-opacity", (d) => addressedIds.has(d.id) ? 0.2 : 0.85)
+      .attr("stroke", (d) => addressedIds.has(d.id) ? "#94a3b8" : nodeColor(d.data))
+      .attr("stroke-opacity", (d) => addressedIds.has(d.id) ? 0.3 : 1)
       .attr("stroke-width", 1.5);
 
     // Source indicator (code nodes get a dashed stroke)
@@ -353,6 +445,7 @@ export function VulnGraphView({ graph }: { graph: VulnGraph }) {
       .attr("font-size", 10)
       .attr("fill", "currentColor")
       .attr("class", "text-foreground")
+      .attr("opacity", (d) => addressedIds.has(d.id) ? 0.3 : 1)
       .text((d) => {
         const label = d.data.package ?? d.data.file_path?.split("/").pop() ?? d.data.title;
         return label.length > 18 ? label.slice(0, 17) + "…" : label;
@@ -373,6 +466,8 @@ export function VulnGraphView({ graph }: { graph: VulnGraph }) {
         node.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
       });
 
+    nodeGroupRef.current = node;
+
     return () => { sim.stop(); };
   }, [graph]);
 
@@ -385,7 +480,7 @@ export function VulnGraphView({ graph }: { graph: VulnGraph }) {
   }
 
   return (
-    <div className="relative flex h-[calc(100vh-220px)] min-h-[480px] gap-3">
+    <div className="relative flex h-[calc(100vh-220px)] min-h-120 gap-3">
       <div className="relative flex-1 overflow-hidden rounded-xl border border-border bg-card">
         <svg ref={svgRef} className="h-full w-full" />
         <Legend />
@@ -396,7 +491,7 @@ export function VulnGraphView({ graph }: { graph: VulnGraph }) {
 
       {selectedNode && (
         <div className="w-72 shrink-0">
-          <DetailPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
+          <DetailPanel node={selectedNode} projectId={projectId} onClose={() => setSelectedNode(null)} />
         </div>
       )}
     </div>

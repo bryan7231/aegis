@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Share2, Trash2 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { UserTab } from "@/components/UserTab";
 
 import { listProjects, deleteProject } from "@/lib/api";
-import type { Project } from "@/types/project";
+import type { Project, ProjectShare } from "@/types/project";
 import { NewProjectModal } from "@/components/NewProjectModal";
+import { ShareModal } from "@/components/ShareModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,6 +32,7 @@ export function Dashboard() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [shareTarget, setShareTarget] = useState<Project | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,6 +65,12 @@ export function Dashboard() {
     setProjects((current) => [project, ...current]);
   }
 
+  function handleSharesChange(projectId: string, shares: ProjectShare[]) {
+    setProjects((current) =>
+      current.map((p) => (p.id === projectId ? { ...p, shares } : p))
+    );
+  }
+
   async function handleDeleteConfirm() {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -77,6 +86,7 @@ export function Dashboard() {
   }
 
   return (
+    <>
     <div className="mx-auto flex min-h-svh w-full max-w-5xl flex-col px-6 py-10 text-left">
       <header className="mb-10 flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -138,11 +148,14 @@ export function Dashboard() {
                       Created {formatDate(project.created_at)}
                     </p>
                   </div>
-                  <Badge
-                    variant={project.status === "analyzed" ? "default" : "secondary"}
-                  >
-                    {project.status}
-                  </Badge>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {project.is_shared && (
+                      <Badge variant="secondary" className="text-xs">Shared</Badge>
+                    )}
+                    <Badge variant={project.status === "analyzed" ? "default" : "secondary"}>
+                      {project.status}
+                    </Badge>
+                  </div>
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -153,20 +166,39 @@ export function Dashboard() {
                       {project.summary.attack_paths} paths
                     </span>
                   )}
+                  {!project.is_shared && (project.shares?.length ?? 0) > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      · shared with {project.shares!.length}
+                    </span>
+                  )}
                 </div>
               </Link>
 
-              {/* Delete button — sits on top of the card link */}
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  setDeleteTarget(project);
-                }}
-                className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                aria-label={`Delete ${project.name}`}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              {/* Action buttons — only for owned projects */}
+              {!project.is_shared && (
+                <div className="absolute right-3 top-3 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setShareTarget(project);
+                    }}
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label={`Share ${project.name}`}
+                  >
+                    <Share2 className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setDeleteTarget(project);
+                    }}
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    aria-label={`Delete ${project.name}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -177,6 +209,15 @@ export function Dashboard() {
         onOpenChange={setModalOpen}
         onCreated={handleProjectCreated}
       />
+
+      {shareTarget && (
+        <ShareModal
+          project={shareTarget}
+          open={!!shareTarget}
+          onOpenChange={(open) => { if (!open) setShareTarget(null); }}
+          onSharesChange={(shares) => handleSharesChange(shareTarget.id, shares)}
+        />
+      )}
 
       {/* Delete confirmation dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
@@ -199,5 +240,7 @@ export function Dashboard() {
         </DialogContent>
       </Dialog>
     </div>
+      <UserTab />
+    </>
   );
 }
