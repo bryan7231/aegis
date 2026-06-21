@@ -1,57 +1,57 @@
-import { useEffect, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { useEffect, useState } from "react";
+import { Plus } from "lucide-react";
 
-import { listProjects } from '@/lib/api'
-import type { Project } from '@/types/project'
-import { NewProjectModal } from '@/components/NewProjectModal'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { listProjects } from "@/lib/api";
+import type { Project } from "@/types/project";
+import { NewProjectModal } from "@/components/NewProjectModal";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export function Dashboard() {
-  const [projects, setProjects] = useState<Project[]>([])
-  const [loading, setLoading] = useState(true)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
 
     async function load() {
       try {
-        const data = await listProjects()
+        const data = await listProjects();
         if (!cancelled) {
-          setProjects(data)
-          setLoadError(null)
+          setProjects(data);
+          setLoadError(null);
         }
       } catch (err) {
         if (!cancelled) {
           setLoadError(
-            err instanceof Error ? err.message : 'Failed to load projects.',
-          )
+            err instanceof Error ? err.message : "Failed to load projects.",
+          );
         }
       } finally {
         if (!cancelled) {
-          setLoading(false)
+          setLoading(false);
         }
       }
     }
 
-    load()
+    load();
     return () => {
-      cancelled = true
-    }
-  }, [])
+      cancelled = true;
+    };
+  }, []);
 
   function handleProjectCreated(project: Project) {
-    setProjects((current) => [project, ...current])
+    setProjects((current) => [project, ...current]);
   }
 
   return (
@@ -59,7 +59,7 @@ export function Dashboard() {
       <header className="mb-10 flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-sm font-medium uppercase tracking-wider text-primary">
-            ChainBreak
+            Aegis
           </p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">
             Projects
@@ -86,7 +86,9 @@ export function Dashboard() {
 
       {!loading && !loadError && projects.length === 0 && (
         <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 py-16 text-center">
-          <h2 className="text-lg font-medium text-foreground">No projects yet</h2>
+          <h2 className="text-lg font-medium text-foreground">
+            No projects yet
+          </h2>
           <p className="mt-2 max-w-sm text-sm text-muted-foreground">
             Create your first project by uploading a lockfile. We&apos;ll scan
             it for known vulnerabilities and build your attack-path graph.
@@ -107,14 +109,16 @@ export function Dashboard() {
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="font-medium text-foreground">{project.name}</h2>
+                  <h2 className="font-medium text-foreground">
+                    {project.name}
+                  </h2>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Created {formatDate(project.created_at)}
                   </p>
                 </div>
                 <Badge
                   variant={
-                    project.status === 'analyzed' ? 'default' : 'secondary'
+                    project.status === "analyzed" ? "default" : "secondary"
                   }
                 >
                   {project.status}
@@ -125,7 +129,7 @@ export function Dashboard() {
                 <Badge variant="outline">{project.ecosystem}</Badge>
                 {project.summary && (
                   <span className="text-xs text-muted-foreground">
-                    {project.summary.vulnerable_packages} vulns ·{' '}
+                    {project.summary.vulnerable_packages} vulns ·{" "}
                     {project.summary.attack_paths} paths
                   </span>
                 )}
@@ -141,5 +145,5 @@ export function Dashboard() {
         onCreated={handleProjectCreated}
       />
     </div>
-  )
+  );
 }
