@@ -21,49 +21,28 @@
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
+  --font-sans: 'Poppins', system-ui, 'Segoe UI', sans-serif;
 }
 
 :root {
-  --background: #ffffff;
-  --foreground: #08060d;
-  --card: #ffffff;
-  --card-foreground: #08060d;
-  --primary: #7c3aed;
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card: #111111;
+  --card-foreground: #fafafa;
+  --primary: #3b82f6;
   --primary-foreground: #ffffff;
-  --secondary: #f4f3ec;
-  --secondary-foreground: #3f3a47;
-  --muted: #f4f3ec;
-  --muted-foreground: #6b6375;
-  --accent: rgba(124, 58, 237, 0.1);
-  --accent-foreground: #5b21b6;
+  --secondary: #1c1c1c;
+  --secondary-foreground: #d4d4d4;
+  --muted: #1c1c1c;
+  --muted-foreground: #737373;
+  --accent: #1c1c1c;
+  --accent-foreground: #fafafa;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  --border: #e5e4e7;
-  --input: #e5e4e7;
-  --ring: #7c3aed;
+  --border: #262626;
+  --input: #1c1c1c;
+  --ring: #3b82f6;
   --radius: 0.5rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #16171d;
-    --foreground: #f3f4f6;
-    --card: #1f2028;
-    --card-foreground: #f3f4f6;
-    --primary: #a78bfa;
-    --primary-foreground: #16171d;
-    --secondary: #2e303a;
-    --secondary-foreground: #e5e7eb;
-    --muted: #2e303a;
-    --muted-foreground: #9ca3af;
-    --accent: rgba(167, 139, 250, 0.15);
-    --accent-foreground: #ddd6fe;
-    --destructive: #ef4444;
-    --destructive-foreground: #ffffff;
-    --border: #2e303a;
-    --input: #2e303a;
-    --ring: #a78bfa;
-  }
 }
 
 * {
@@ -73,9 +52,10 @@
 body {
   margin: 0;
   min-height: 100svh;
-  background: var(--background);
+  background-color: var(--background);
+  background-image: radial-gradient(ellipse 80% 35% at 50% -5%, rgba(59, 130, 246, 0.07) 0%, transparent 100%);
   color: var(--foreground);
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Poppins', system-ui, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -84,68 +64,46 @@ body {
   min-height: 100svh;
 }
 
+/* ── Animations ─────────────────────────────────────────────────────────────── */
+
 @keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes fade-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 
 @keyframes zoom-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-  }
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.95); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 
 @keyframes zoom-out {
-  from {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.95);
-  }
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to   { opacity: 0; transform: translate(-50%, -50%) scale(0.95); }
 }
 
-.animate-in {
-  animation-duration: 200ms;
-  animation-fill-mode: forwards;
+@keyframes slide-in-from-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
 }
 
-.animate-out {
-  animation-duration: 150ms;
-  animation-fill-mode: forwards;
+@keyframes slide-out-to-right {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
 }
 
-.fade-in-0 {
-  animation-name: fade-in;
-}
+.animate-in  { animation-duration: 200ms; animation-fill-mode: forwards; }
+.animate-out { animation-duration: 150ms; animation-fill-mode: forwards; }
 
-.fade-out-0 {
-  animation-name: fade-out;
-}
+.fade-in-0      { animation-name: fade-in; }
+.fade-out-0     { animation-name: fade-out; }
+.zoom-in-95     { animation-name: zoom-in; }
+.zoom-out-95    { animation-name: zoom-out; }
 
-.zoom-in-95 {
-  animation-name: zoom-in;
-}
-
-.zoom-out-95 {
-  animation-name: zoom-out;
-}
+/* Sheet slide animations */
+.sheet-animate-in  { animation: slide-in-from-right 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.sheet-animate-out { animation: slide-out-to-right  250ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }

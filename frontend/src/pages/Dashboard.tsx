@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
-import { Link } from "@tanstack/react-router";
+import { Plus, ShieldAlert } from "lucide-react";
 
 import { listProjects, deleteProject } from "@/lib/api";
 import type { Project } from "@/types/project";
 import { NewProjectModal } from "@/components/NewProjectModal";
-import { Badge } from "@/components/ui/badge";
+import { TiltProjectCard } from "@/components/TiltProjectCard";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,14 +13,15 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  EmptyDescription,
+  EmptyContent,
+} from "@/components/ui/empty";
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 export function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -48,9 +48,7 @@ export function Dashboard() {
           );
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -70,31 +68,32 @@ export function Dashboard() {
       setProjects((current) => current.filter((p) => p.id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch {
-      // keep dialog open on error; user can retry
+      // keep dialog open on error
     } finally {
       setDeleting(false);
     }
   }
 
   return (
-    <div className="mx-auto flex min-h-svh w-full max-w-5xl flex-col px-6 py-10 text-left">
-      <header className="mb-10 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium uppercase tracking-wider text-primary">
-            Aegis
-          </p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">
-            Projects
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Connect a public GitHub repository to map attack paths across your dependencies.
-          </p>
-        </div>
-        <Button onClick={() => setModalOpen(true)}>
-          <Plus className="h-4 w-4" />
+    <div className="mx-auto flex min-h-svh w-full max-w-5xl flex-col px-6 py-8 text-left">
+      {/* Brand nav */}
+      <nav className="mb-10 flex items-center justify-between border-b border-border pb-5">
+        <span className="font-mono text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+          Aegis
+        </span>
+        <Button onClick={() => setModalOpen(true)} size="sm">
+          <Plus className="h-3.5 w-3.5" />
           New project
         </Button>
-      </header>
+      </nav>
+
+      {/* Page heading */}
+      <div className="mb-8">
+        <h1 className="text-3xl font-semibold tracking-tight">Projects</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Connect a public GitHub repository to map attack paths across your dependencies.
+        </p>
+      </div>
 
       {loading && (
         <p className="text-sm text-muted-foreground">Loading projects…</p>
@@ -107,66 +106,37 @@ export function Dashboard() {
       )}
 
       {!loading && !loadError && projects.length === 0 && (
-        <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 px-6 py-16 text-center">
-          <h2 className="text-lg font-medium text-foreground">No projects yet</h2>
-          <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-            Create your first project by linking a public GitHub repository.
-            We&apos;ll scan it for known vulnerabilities and build your attack-path graph.
-          </p>
-          <Button className="mt-6" onClick={() => setModalOpen(true)}>
-            <Plus className="h-4 w-4" />
-            New project
-          </Button>
-        </div>
+        <Empty className="flex-1 justify-center rounded-xl border border-dashed border-border py-20">
+          <EmptyHeader>
+            <EmptyMedia
+              variant="icon"
+              className="bg-linear-to-br from-blue-500/20 to-blue-900/5 border-blue-500/25 text-blue-400"
+            >
+              <ShieldAlert className="h-5 w-5" />
+            </EmptyMedia>
+            <EmptyTitle>No projects yet</EmptyTitle>
+            <EmptyDescription>
+              Create your first project by linking a public GitHub repository.
+              We&apos;ll scan it for known vulnerabilities and build your attack-path graph.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button onClick={() => setModalOpen(true)}>
+              <Plus className="h-4 w-4" />
+              New project
+            </Button>
+          </EmptyContent>
+        </Empty>
       )}
 
       {!loading && projects.length > 0 && (
         <ul className="grid gap-4 sm:grid-cols-2">
           {projects.map((project) => (
-            <li key={project.id} className="group relative">
-              <Link
-                to="/projects/$projectId"
-                params={{ projectId: project.id }}
-                className="block rounded-xl border border-border bg-card p-5 shadow-sm transition-colors hover:border-primary/40"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="truncate font-medium text-foreground">
-                      {project.name}
-                    </h2>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Created {formatDate(project.created_at)}
-                    </p>
-                  </div>
-                  <Badge
-                    variant={project.status === "analyzed" ? "default" : "secondary"}
-                  >
-                    {project.status}
-                  </Badge>
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">{project.ecosystem}</Badge>
-                  {project.summary && (
-                    <span className="text-xs text-muted-foreground">
-                      {project.summary.vulnerable_packages} vulns ·{" "}
-                      {project.summary.attack_paths} paths
-                    </span>
-                  )}
-                </div>
-              </Link>
-
-              {/* Delete button — sits on top of the card link */}
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  setDeleteTarget(project);
-                }}
-                className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                aria-label={`Delete ${project.name}`}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+            <li key={project.id}>
+              <TiltProjectCard
+                project={project}
+                onDelete={() => setDeleteTarget(project)}
+              />
             </li>
           ))}
         </ul>
@@ -178,7 +148,6 @@ export function Dashboard() {
         onCreated={handleProjectCreated}
       />
 
-      {/* Delete confirmation dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <DialogContent>
           <DialogHeader>

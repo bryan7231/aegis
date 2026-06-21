@@ -13,10 +13,10 @@ const SEVERITY_RANK: Record<string, number> = {
 };
 
 const SEVERITY_BADGE: Record<string, string> = {
-  critical: "bg-red-500/15 text-red-500",
-  high: "bg-orange-500/15 text-orange-600 dark:text-orange-500",
-  medium: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  low: "bg-green-500/15 text-green-700 dark:text-green-500",
+  critical: "bg-red-500/15 text-red-400",
+  high: "bg-orange-500/15 text-orange-400",
+  medium: "bg-amber-500/15 text-amber-400",
+  low: "bg-green-500/15 text-green-400",
   unknown: "bg-muted text-muted-foreground",
 };
 

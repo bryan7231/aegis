@@ -74,7 +74,7 @@ function DefaultAvatar({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'flex items-center justify-center rounded-full bg-gradient-to-br from-primary to-accent-foreground text-primary-foreground',
+        'flex items-center justify-center rounded-full bg-zinc-800 text-zinc-300',
         className,
       )}
       aria-hidden

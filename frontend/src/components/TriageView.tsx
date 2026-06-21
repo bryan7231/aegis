@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 
 // ── Scoring ───────────────────────────────────────────────────────────────────
 
@@ -55,10 +56,10 @@ const SEVERITY_COLOR: Record<string, string> = {
 };
 
 const SEVERITY_BADGE: Record<string, string> = {
-  critical: "bg-red-500/15 text-red-500",
-  high: "bg-orange-500/15 text-orange-600 dark:text-orange-500",
-  medium: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  low: "bg-green-500/15 text-green-700 dark:text-green-500",
+  critical: "bg-red-500/15 text-red-400",
+  high: "bg-orange-500/15 text-orange-400",
+  medium: "bg-amber-500/15 text-amber-400",
+  low: "bg-green-500/15 text-green-400",
   unknown: "bg-muted text-muted-foreground",
 };
 
@@ -66,24 +67,24 @@ function priorityLabel(score: number) {
   if (score >= 0.65)
     return {
       label: "Fix immediately",
-      color: "text-red-600 dark:text-red-400",
+      color: "text-red-400",
       bg: "bg-red-500/10",
     };
   if (score >= 0.45)
     return {
       label: "Fix soon",
-      color: "text-orange-600 dark:text-orange-400",
+      color: "text-orange-400",
       bg: "bg-orange-500/10",
     };
   if (score >= 0.25)
     return {
       label: "Fix when able",
-      color: "text-amber-700 dark:text-amber-400",
+      color: "text-amber-400",
       bg: "bg-amber-500/10",
     };
   return {
     label: "Monitor",
-    color: "text-green-700 dark:text-green-400",
+    color: "text-green-400",
     bg: "bg-green-500/10",
   };
 }
@@ -316,7 +317,8 @@ function TriageCard({
 
   return (
     <>
-      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+      <Card>
+        <CardContent className="space-y-0">
         {/* Header */}
         <div className="flex flex-wrap items-start gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-foreground">
@@ -397,12 +399,12 @@ function TriageCard({
             </span>
           )}
           {edgeCount > 0 && (
-            <span className="rounded-full bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-600 dark:text-violet-400">
+            <span className="rounded-full bg-white/8 px-2 py-0.5 text-xs font-medium text-white/60">
               {edgeCount} exploit chain{edgeCount !== 1 ? "s" : ""}
             </span>
           )}
           {node.attack_vector === "Network" && (
-            <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-xs font-medium text-sky-600 dark:text-sky-400">
+            <span className="rounded-full bg-white/8 px-2 py-0.5 text-xs font-medium text-white/60">
               Network exposed
             </span>
           )}
@@ -459,7 +461,8 @@ function TriageCard({
             />
           </div>
         </details>
-      </div>
+        </CardContent>
+      </Card>
 
       <PlanModal
         open={modalOpen}

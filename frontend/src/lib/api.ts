@@ -1,6 +1,6 @@
 import type { AnalysisResult, CreateProjectRequest, Project, RemediationPlan, VulnGraph } from "@/types/project";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "";
+const API_BASE = import.meta.env.VITE_API_URL ?? "/api";
 
 type TokenGetter = () => Promise<string | null>;
 let _getToken: TokenGetter | null = null;

@@ -81,7 +81,7 @@ export type AnalysisResult = {
   summary: Record<string, number>
 }
 
-export type ProjectStatus = 'pending' | 'analyzed'
+export type ProjectStatus = 'pending' | 'analyzing' | 'analyzed'
 
 export type ProjectSummary = {
   vulnerable_packages: number
