@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, ShieldAlert, Share2, Trash2 } from "lucide-react";
-import { Link } from "@tanstack/react-router";
+import { Plus, ShieldAlert } from "lucide-react";
 import { UserTab } from "@/components/UserTab";
 
 import { listProjects, deleteProject } from "@/lib/api";
@@ -8,8 +7,9 @@ import type { Project, ProjectShare } from "@/types/project";
 import { NewProjectModal } from "@/components/NewProjectModal";
 import { TiltProjectCard } from "@/components/TiltProjectCard";
 import { ShareModal } from "@/components/ShareModal";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import logo from "@/assets/logo_white.png";
+
 import {
   Dialog,
   DialogContent,
@@ -48,7 +48,7 @@ export function Dashboard() {
       } catch (err) {
         if (!cancelled) {
           setLoadError(
-            err instanceof Error ? err.message : "Failed to load projects."
+            err instanceof Error ? err.message : "Failed to load projects.",
           );
         }
       } finally {
@@ -68,7 +68,7 @@ export function Dashboard() {
 
   function handleSharesChange(projectId: string, shares: ProjectShare[]) {
     setProjects((current) =>
-      current.map((p) => (p.id === projectId ? { ...p, shares } : p))
+      current.map((p) => (p.id === projectId ? { ...p, shares } : p)),
     );
   }
 
@@ -91,9 +91,13 @@ export function Dashboard() {
       <div className="mx-auto flex min-h-svh w-full max-w-5xl flex-col px-6 py-8 text-left">
         {/* Brand nav */}
         <nav className="mb-10 flex items-center justify-between border-b border-border pb-5">
-          <span className="font-mono text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-            Aegis
-          </span>
+          <div className="w-30 h-7.5 overflow-hidden relative self-end -mb-2">
+            <img
+              src={logo}
+              alt="Website logo"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 w-[110%] max-w-none h-full object-cover"
+            />
+          </div>
           <Button onClick={() => setModalOpen(true)} size="sm">
             <Plus className="h-3.5 w-3.5" />
             New project

@@ -11,5 +11,8 @@
   },
   "devDependencies": {
     "turbo": "latest"
+  },
+  "dependencies": {
+    "react-image-crop": "^11.0.10"
   }
 }

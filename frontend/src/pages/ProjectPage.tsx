@@ -1,10 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
-import { getAddressedNodes, getProjectVulnerabilities, markAddressed, unmarkAddressed } from "@/lib/api";
+import {
+  getAddressedNodes,
+  getProjectVulnerabilities,
+  markAddressed,
+  unmarkAddressed,
+} from "@/lib/api";
 import type { AnalysisResult, Vulnerability } from "@/types/project";
 import { VulnGraphView } from "@/components/VulnGraphView";
 import { TriageView } from "@/components/TriageView";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type SortKey = "package" | "cve_id" | "cvss" | "epss" | "kev" | "severity";
 type SortDir = "asc" | "desc";
@@ -36,18 +47,28 @@ function severityTier(v: Vulnerability): string {
 
 function compare(a: Vulnerability, b: Vulnerability, key: SortKey): number {
   switch (key) {
-    case "package": return a.package.localeCompare(b.package);
-    case "cve_id": return a.cve_id.localeCompare(b.cve_id);
-    case "cvss": return (a.cvss ?? -1) - (b.cvss ?? -1);
-    case "epss": return (a.epss ?? -1) - (b.epss ?? -1);
-    case "kev": return Number(a.kev) - Number(b.kev);
+    case "package":
+      return a.package.localeCompare(b.package);
+    case "cve_id":
+      return a.cve_id.localeCompare(b.cve_id);
+    case "cvss":
+      return (a.cvss ?? -1) - (b.cvss ?? -1);
+    case "epss":
+      return (a.epss ?? -1) - (b.epss ?? -1);
+    case "kev":
+      return Number(a.kev) - Number(b.kev);
     case "severity":
-      return (SEVERITY_RANK[severityTier(a)] ?? 0) - (SEVERITY_RANK[severityTier(b)] ?? 0);
+      return (
+        (SEVERITY_RANK[severityTier(a)] ?? 0) -
+        (SEVERITY_RANK[severityTier(b)] ?? 0)
+      );
   }
 }
 
-const badge = "inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize leading-snug";
-const thBase = "cursor-pointer select-none whitespace-nowrap border-b border-border bg-background px-3 py-2.5 text-left font-medium text-foreground sticky top-0";
+const badge =
+  "inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize leading-snug";
+const thBase =
+  "cursor-pointer select-none whitespace-nowrap border-b border-border bg-background px-3 py-2.5 text-left font-medium text-foreground sticky top-0";
 const tdBase = "whitespace-nowrap border-b border-border px-3 py-2.5 text-left";
 const mono = "font-mono text-[13px] text-foreground";
 
@@ -60,14 +81,19 @@ export function ProjectPage() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [tab, setTab] = useState<Tab>("triage");
   const [addressedIds, setAddressedIds] = useState<Set<string>>(new Set());
+  const [openDescription, setOpenDescription] = useState(false);
 
   // Load addressed state from DB on mount
   useEffect(() => {
     let cancelled = false;
     getAddressedNodes(projectId)
-      .then((data) => { if (!cancelled) setAddressedIds(new Set(data.node_ids)); })
+      .then((data) => {
+        if (!cancelled) setAddressedIds(new Set(data.node_ids));
+      })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [projectId]);
 
   async function toggleAddressed(nodeId: string) {
@@ -111,7 +137,11 @@ export function ProjectPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load vulnerabilities.");
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load vulnerabilities.",
+          );
           setLoading(false);
         }
       }
@@ -129,13 +159,18 @@ export function ProjectPage() {
 
   const sorted = useMemo(() => {
     if (!analysis) return [];
-    const list = [...analysis.vulnerabilities].sort((a, b) => compare(a, b, sortKey));
+    const list = [...analysis.vulnerabilities].sort((a, b) =>
+      compare(a, b, sortKey),
+    );
     return sortDir === "asc" ? list : list.reverse();
   }, [analysis, sortKey, sortDir]);
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(key); setSortDir("desc"); }
+    else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
   }
 
   function arrow(key: SortKey) {
@@ -144,12 +179,16 @@ export function ProjectPage() {
   }
 
   const hasGraph = analysis?.graph && analysis.graph.nodes.length > 0;
-  const codeVulnCount = analysis?.graph?.nodes.filter((n) => n.source === "code").length ?? 0;
+  const codeVulnCount =
+    analysis?.graph?.nodes.filter((n) => n.source === "code").length ?? 0;
   const depVulnCount = analysis?.vulnerabilities.length ?? 0;
 
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-8">
-      <Link to="/" className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+      <Link
+        to="/"
+        className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
         <ArrowLeft className="h-4 w-4" />
         All projects
       </Link>
@@ -163,7 +202,8 @@ export function ProjectPage() {
       {analysis?.status === "analyzing" && (
         <div className="mt-6 flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
           <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-          Scanning repository — running OSV lookup, code scan, and building exploit graph…
+          Scanning repository — running OSV lookup, code scan, and building
+          exploit graph…
         </div>
       )}
 
@@ -176,7 +216,7 @@ export function ProjectPage() {
       {analysis && analysis.status === "complete" && (
         <>
           {/* Page header */}
-          <div className="mb-6 flex flex-wrap items-baseline gap-3">
+          <div className="mb-3 flex flex-wrap items-baseline gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">Analysis</h1>
             <span className="text-sm text-muted-foreground">
               {depVulnCount} dep CVEs
@@ -187,14 +227,31 @@ export function ProjectPage() {
 
           {/* Narrative */}
           {analysis.report && (
-            <div className="mb-6 rounded-xl border border-border bg-card px-5 py-4 text-sm">
-              <p className="font-medium text-foreground">{analysis.report.narrative}</p>
-              {analysis.report.highest_risk_path && (
-                <p className="mt-2 font-mono text-xs text-muted-foreground">
-                  {analysis.report.highest_risk_path}
-                </p>
-              )}
-            </div>
+            <>
+              <p className="font-small text-muted-foreground mb-6 ">
+                <span
+                  className="hover:text-primary"
+                  onClick={() => {
+                    setOpenDescription(true);
+                  }}
+                >
+                  Click for detailed summary.
+                </span>
+              </p>
+
+              <Dialog open={openDescription} onOpenChange={setOpenDescription}>
+                <DialogContent className=" px-5 py-4 text-sm max-w-[80vw]">
+                  <p className="font-medium text-foreground">
+                    {analysis.report.narrative}
+                  </p>
+                  {analysis.report.highest_risk_path && (
+                    <p className="mt-2 font-mono text-xs text-muted-foreground">
+                      {analysis.report.highest_risk_path}
+                    </p>
+                  )}
+                </DialogContent>
+              </Dialog>
+            </>
           )}
 
           {/* Tabs */}
@@ -209,7 +266,10 @@ export function ProjectPage() {
                 ? analysis.graph!.nodes
                 : analysis.vulnerabilities;
               const triageCount = allNodes.filter(
-                (n) => !addressedIds.has("id" in n ? n.id : n.cve_id + n.package + n.version)
+                (n) =>
+                  !addressedIds.has(
+                    "id" in n ? n.id : n.cve_id + n.package + n.version,
+                  ),
               ).length;
               return (
                 <button
@@ -255,7 +315,9 @@ export function ProjectPage() {
                       severity: v.severity,
                       cvss: v.cvss,
                       cwe_ids: v.cwe_ids ?? [],
-                      remediation: v.fixed_version ? `Upgrade to ${v.fixed_version}` : null,
+                      remediation: v.fixed_version
+                        ? `Upgrade to ${v.fixed_version}`
+                        : null,
                       centrality_score: 0,
                       cve_id: v.cve_id,
                       package: v.package,
@@ -293,13 +355,43 @@ export function ProjectPage() {
                   <table className="w-full border-collapse text-sm">
                     <thead>
                       <tr>
-                        <th className={thBase} onClick={() => toggleSort("package")}>Package{arrow("package")}</th>
+                        <th
+                          className={thBase}
+                          onClick={() => toggleSort("package")}
+                        >
+                          Package{arrow("package")}
+                        </th>
                         <th className={thBase}>Version</th>
-                        <th className={thBase} onClick={() => toggleSort("cve_id")}>CVE{arrow("cve_id")}</th>
-                        <th className={`${thBase} text-right`} onClick={() => toggleSort("cvss")}>CVSS{arrow("cvss")}</th>
-                        <th className={`${thBase} text-right`} onClick={() => toggleSort("epss")}>EPSS{arrow("epss")}</th>
-                        <th className={thBase} onClick={() => toggleSort("kev")}>KEV{arrow("kev")}</th>
-                        <th className={thBase} onClick={() => toggleSort("severity")}>Severity{arrow("severity")}</th>
+                        <th
+                          className={thBase}
+                          onClick={() => toggleSort("cve_id")}
+                        >
+                          CVE{arrow("cve_id")}
+                        </th>
+                        <th
+                          className={`${thBase} text-right`}
+                          onClick={() => toggleSort("cvss")}
+                        >
+                          CVSS{arrow("cvss")}
+                        </th>
+                        <th
+                          className={`${thBase} text-right`}
+                          onClick={() => toggleSort("epss")}
+                        >
+                          EPSS{arrow("epss")}
+                        </th>
+                        <th
+                          className={thBase}
+                          onClick={() => toggleSort("kev")}
+                        >
+                          KEV{arrow("kev")}
+                        </th>
+                        <th
+                          className={thBase}
+                          onClick={() => toggleSort("severity")}
+                        >
+                          Severity{arrow("severity")}
+                        </th>
                         <th className={thBase}>Fixed in</th>
                       </tr>
                     </thead>
@@ -307,27 +399,59 @@ export function ProjectPage() {
                       {sorted.map((v, idx) => {
                         const tier = severityTier(v);
                         return (
-                          <tr key={`${v.cve_id}-${v.package}-${v.version}-${idx}`} className="hover:bg-muted/30">
+                          <tr
+                            key={`${v.cve_id}-${v.package}-${v.version}-${idx}`}
+                            className="hover:bg-muted/30"
+                          >
                             <td className={`${tdBase} ${mono}`}>{v.package}</td>
-                            <td className={`${tdBase} ${mono} text-muted-foreground`}>{v.version}</td>
+                            <td
+                              className={`${tdBase} ${mono} text-muted-foreground`}
+                            >
+                              {v.version}
+                            </td>
                             <td className={tdBase}>
                               {v.osv_url ? (
-                                <a href={v.osv_url} target="_blank" rel="noreferrer" className={`${mono} text-primary no-underline hover:underline`}>
+                                <a
+                                  href={v.osv_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className={`${mono} text-primary no-underline hover:underline`}
+                                >
                                   {v.cve_id}
                                 </a>
                               ) : (
                                 <span className={mono}>{v.cve_id}</span>
                               )}
                             </td>
-                            <td className={`${tdBase} text-right`}>{v.cvss != null ? v.cvss.toFixed(1) : "—"}</td>
-                            <td className={`${tdBase} text-right`}>{v.epss != null ? `${(v.epss * 100).toFixed(1)}%` : "—"}</td>
-                            <td className={tdBase}>
-                              {v.kev && <span className={`${badge} bg-red-500/90 text-white normal-case`}>KEV</span>}
+                            <td className={`${tdBase} text-right`}>
+                              {v.cvss != null ? v.cvss.toFixed(1) : "—"}
+                            </td>
+                            <td className={`${tdBase} text-right`}>
+                              {v.epss != null
+                                ? `${(v.epss * 100).toFixed(1)}%`
+                                : "—"}
                             </td>
                             <td className={tdBase}>
-                              <span className={`${badge} ${SEVERITY_BADGE[tier] ?? SEVERITY_BADGE.unknown}`}>{tier}</span>
+                              {v.kev && (
+                                <span
+                                  className={`${badge} bg-red-500/90 text-white normal-case`}
+                                >
+                                  KEV
+                                </span>
+                              )}
                             </td>
-                            <td className={`${tdBase} ${mono} text-muted-foreground`}>{v.fixed_version ?? "—"}</td>
+                            <td className={tdBase}>
+                              <span
+                                className={`${badge} ${SEVERITY_BADGE[tier] ?? SEVERITY_BADGE.unknown}`}
+                              >
+                                {tier}
+                              </span>
+                            </td>
+                            <td
+                              className={`${tdBase} ${mono} text-muted-foreground`}
+                            >
+                              {v.fixed_version ?? "—"}
+                            </td>
                           </tr>
                         );
                       })}
@@ -343,10 +467,15 @@ export function ProjectPage() {
             <>
               {!hasGraph ? (
                 <div className="py-16 text-center text-muted-foreground">
-                  No graph data available. Re-run analysis to generate the exploit chain graph.
+                  No graph data available. Re-run analysis to generate the
+                  exploit chain graph.
                 </div>
               ) : (
-                <VulnGraphView graph={analysis.graph!} addressedIds={addressedIds} projectId={projectId} />
+                <VulnGraphView
+                  graph={analysis.graph!}
+                  addressedIds={addressedIds}
+                  projectId={projectId}
+                />
               )}
             </>
           )}

@@ -522,13 +522,13 @@ export function VulnGraphView({
         d3
           .forceLink<SimNode, SimLink>(simLinks)
           .id((d) => d.id)
-          .distance(120)
+          .distance(70)
       )
-      .force("charge", d3.forceManyBody().strength(-300))
+      .force("charge", d3.forceManyBody().strength(-120))
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force(
         "collision",
-        d3.forceCollide<SimNode>().radius((d) => nodeRadius(d.data) + 14)
+        d3.forceCollide<SimNode>().radius((d) => nodeRadius(d.data) + 6)
       )
       .on("tick", () => {
         link
