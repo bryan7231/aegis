@@ -1,4 +1,4 @@
-import type { AnalysisResult, CreateProjectRequest, Project, RemediationPlan, VulnGraph } from "@/types/project";
+import type { AnalysisResult, CreateProjectRequest, Project, ProjectShare, RemediationPlan, VulnGraph } from "@/types/project";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "/api";
 
@@ -58,4 +58,31 @@ export function getRemediationPlan(projectId: string, nodeId: string): Promise<R
 
 export function regenerateRemediationPlan(projectId: string, nodeId: string): Promise<RemediationPlan> {
   return request<RemediationPlan>(`/projects/${projectId}/nodes/${nodeId}/plan`, { method: "POST" });
+}
+
+export function getAddressedNodes(projectId: string): Promise<{ node_ids: string[] }> {
+  return request<{ node_ids: string[] }>(`/projects/${projectId}/addressed`);
+}
+
+export function markAddressed(projectId: string, nodeId: string): Promise<void> {
+  return request<void>(`/projects/${projectId}/addressed/${nodeId}`, { method: "POST" });
+}
+
+export function unmarkAddressed(projectId: string, nodeId: string): Promise<void> {
+  return request<void>(`/projects/${projectId}/addressed/${nodeId}`, { method: "DELETE" });
+}
+
+export function getProjectShares(projectId: string): Promise<ProjectShare[]> {
+  return request<ProjectShare[]>(`/projects/${projectId}/shares`);
+}
+
+export function shareProject(projectId: string, email: string): Promise<ProjectShare> {
+  return request<ProjectShare>(`/projects/${projectId}/shares`, {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function revokeShare(projectId: string, shareId: string): Promise<void> {
+  return request<void>(`/projects/${projectId}/shares/${shareId}`, { method: "DELETE" });
 }

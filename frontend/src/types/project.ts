@@ -89,6 +89,13 @@ export type ProjectSummary = {
   fixes_needed: number
 }
 
+export type ProjectShare = {
+  id: string
+  project_id: string
+  shared_with_email: string
+  created_at: string | null
+}
+
 export type Project = {
   id: string
   name: string
@@ -96,6 +103,9 @@ export type Project = {
   created_at: string
   status: ProjectStatus
   summary?: ProjectSummary
+  is_shared?: boolean
+  shares?: ProjectShare[]
+  shared_by_email?: string
 }
 
 export type CreateProjectRequest = {

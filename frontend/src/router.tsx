@@ -12,7 +12,6 @@ import App from "./pages/App";
 import { ProjectPage } from "./pages/ProjectPage";
 import SignInPage from "./pages/SignInPage";
 import SignUpPage from "./pages/SignUpPage";
-import { UserTab } from "@/components/UserTab";
 
 function AuthLayout() {
   const { isSignedIn, isLoaded, getToken } = useAuth();
@@ -31,12 +30,7 @@ function AuthLayout() {
   if (!isLoaded) return <div className="flex min-h-svh items-center justify-center text-muted-foreground">Loading…</div>;
   if (!isSignedIn) return null;
 
-  return (
-    <>
-      <Outlet />
-      <UserTab />
-    </>
-  );
+  return <Outlet />;
 }
 
 const rootRoute = createRootRoute();

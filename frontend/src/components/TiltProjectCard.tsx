@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type SetStateAction } from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowUpRight, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowUpRight, ShieldCheck, Trash2, Share2 } from "lucide-react";
 import type { Project } from "@/types/project";
 import { Badge } from "@/components/ui/badge";
 
@@ -14,10 +14,15 @@ function formatDate(iso: string) {
 
 interface Props {
   project: Project;
-  onDelete: () => void;
+  setShareTarget: (value: SetStateAction<Project | null>) => void;
+  setDeleteTarget: (value: SetStateAction<Project | null>) => void;
 }
 
-export function TiltProjectCard({ project, onDelete }: Props) {
+export function TiltProjectCard({
+  project,
+  setDeleteTarget,
+  setShareTarget,
+}: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [rot, setRot] = useState({ x: 0, y: 0 });
   const [shimmer, setShimmer] = useState({ x: 50, y: 50 });
@@ -146,7 +151,7 @@ export function TiltProjectCard({ project, onDelete }: Props) {
                 transition: "transform 0.3s ease",
                 transformStyle: "preserve-3d",
               }}
-              className="p-6"
+              className="p-6 flex flex-col justify-between"
             >
               {/* Tag row */}
               <div className="mb-4 flex items-center gap-2">
@@ -159,32 +164,57 @@ export function TiltProjectCard({ project, onDelete }: Props) {
                 />
               </div>
 
-              {/* Icon — deepest translateZ */}
-              <div
-                style={{
-                  transform: active ? "translateZ(40px)" : "translateZ(0)",
-                  transition: "transform 0.3s ease",
-                }}
-                className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20"
-              >
-                <ShieldCheck className="h-5 w-5" />
+              <div className="flex flex-row justify-between items-center">
+                <div>
+                  {/* Title */}
+                  <h3
+                    style={{
+                      transform: active ? "translateZ(28px)" : "translateZ(0)",
+                      transition: "transform 0.3s ease",
+                    }}
+                    className="mb-1 truncate text-[15px] font-semibold leading-snug text-foreground"
+                  >
+                    {project.name}
+                  </h3>
+
+                  {/* Date */}
+                  <p className="text-xs text-muted-foreground">
+                    Created {formatDate(project.created_at)}
+                  </p>
+                </div>
+                {/* Icon — deepest translateZ */}
+                <div
+                  style={{
+                    transform: active ? "translateZ(40px)" : "translateZ(0)",
+                    transition: "transform 0.3s ease",
+                  }}
+                  className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20"
+                >
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
               </div>
 
-              {/* Title */}
-              <h3
-                style={{
-                  transform: active ? "translateZ(28px)" : "translateZ(0)",
-                  transition: "transform 0.3s ease",
-                }}
-                className="mb-1 truncate text-[15px] font-semibold leading-snug text-foreground"
-              >
-                {project.name}
-              </h3>
-
-              {/* Date */}
-              <p className="text-xs text-muted-foreground">
-                Created {formatDate(project.created_at)}
-              </p>
+              {/* Sharing info */}
+              {project.is_shared && project.shared_by_email && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Shared with you by{" "}
+                  <span className="text-foreground/70">
+                    {project.shared_by_email}
+                  </span>
+                </p>
+              )}
+              {!project.is_shared &&
+                project.shares &&
+                project.shares.length > 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Shared with{" "}
+                    <span className="text-foreground/70">
+                      {project.shares[0].shared_with_email}
+                      {project.shares.length > 1 &&
+                        ` +${project.shares.length - 1} more`}
+                    </span>
+                  </p>
+                )}
 
               {/* Footer */}
               <div
@@ -193,7 +223,7 @@ export function TiltProjectCard({ project, onDelete }: Props) {
                   transition: "transform 0.3s ease",
                   borderTop: "1px solid rgba(255,255,255,0.06)",
                 }}
-                className="mt-5 flex items-end justify-between pt-4"
+                className="mt-5 flex items-center justify-between pt-4"
               >
                 {project.summary ? (
                   <div className="flex gap-4">
@@ -217,41 +247,41 @@ export function TiltProjectCard({ project, onDelete }: Props) {
                 ) : (
                   <Badge
                     variant={isAnalyzed ? "default" : "secondary"}
-                    className="text-[10px]"
+                    className="text-[12px]"
                   >
                     {project.status}
                   </Badge>
                 )}
-
-                {/* Arrow button — highest translateZ */}
-                <div
-                  style={{
-                    transform: active
-                      ? "translateZ(50px) scale(1.05)"
-                      : "translateZ(0) scale(1)",
-                    transition: "transform 0.3s ease",
-                  }}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-white/5 text-muted-foreground ring-1 ring-white/10 transition-colors group-hover:bg-primary/10 group-hover:text-primary"
-                >
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                </div>
+                {/* Action buttons — only for owned projects */}
+                {!project.is_shared && (
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setShareTarget(project);
+                      }}
+                      className="rounded-full p-2.5 text-muted-foreground ring-1 ring-white/10 transition-colors hover:bg-primary/10 hover:text-primary"
+                      aria-label={`Share ${project.name}`}
+                    >
+                      <Share2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setDeleteTarget(project);
+                      }}
+                      className="rounded-full p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive ring-1 ring-white/10 transition-colors"
+                      aria-label={`Delete ${project.name}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         </Link>
       </div>
-
-      {/* Delete — sits on top, outside the Link */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-        className="absolute right-3 top-3 z-10 rounded-md p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-        aria-label={`Delete ${project.name}`}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
     </div>
   );
 }

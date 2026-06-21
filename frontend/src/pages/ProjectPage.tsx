@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
-import { getProjectVulnerabilities } from "@/lib/api";
+import { getAddressedNodes, getProjectVulnerabilities, markAddressed, unmarkAddressed } from "@/lib/api";
 import type { AnalysisResult, Vulnerability } from "@/types/project";
 import { VulnGraphView } from "@/components/VulnGraphView";
 import { TriageView } from "@/components/TriageView";
@@ -59,6 +59,41 @@ export function ProjectPage() {
   const [sortKey, setSortKey] = useState<SortKey>("cvss");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [tab, setTab] = useState<Tab>("triage");
+  const [addressedIds, setAddressedIds] = useState<Set<string>>(new Set());
+
+  // Load addressed state from DB on mount
+  useEffect(() => {
+    let cancelled = false;
+    getAddressedNodes(projectId)
+      .then((data) => { if (!cancelled) setAddressedIds(new Set(data.node_ids)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  async function toggleAddressed(nodeId: string) {
+    const wasAddressed = addressedIds.has(nodeId);
+
+    // Optimistic update
+    setAddressedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
+      return next;
+    });
+
+    try {
+      if (wasAddressed) await unmarkAddressed(projectId, nodeId);
+      else await markAddressed(projectId, nodeId);
+    } catch {
+      // Revert on failure
+      setAddressedIds((prev) => {
+        const next = new Set(prev);
+        if (wasAddressed) next.add(nodeId);
+        else next.delete(nodeId);
+        return next;
+      });
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -170,9 +205,12 @@ export function ProjectPage() {
                 vulnerabilities: "All CVEs",
                 graph: "Exploit Graph",
               };
-              const triageCount = hasGraph
-                ? analysis.graph!.nodes.length
-                : analysis.vulnerabilities.length;
+              const allNodes = hasGraph
+                ? analysis.graph!.nodes
+                : analysis.vulnerabilities;
+              const triageCount = allNodes.filter(
+                (n) => !addressedIds.has("id" in n ? n.id : n.cve_id + n.package + n.version)
+              ).length;
               return (
                 <button
                   key={t}
@@ -204,6 +242,8 @@ export function ProjectPage() {
           {tab === "triage" && (
             <TriageView
               projectId={projectId}
+              addressedIds={addressedIds}
+              onToggle={toggleAddressed}
               nodes={
                 hasGraph
                   ? analysis.graph!.nodes
@@ -306,7 +346,7 @@ export function ProjectPage() {
                   No graph data available. Re-run analysis to generate the exploit chain graph.
                 </div>
               ) : (
-                <VulnGraphView graph={analysis.graph!} />
+                <VulnGraphView graph={analysis.graph!} addressedIds={addressedIds} projectId={projectId} />
               )}
             </>
           )}

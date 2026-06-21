@@ -1,6 +1,8 @@
+import os
 import uuid
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -11,6 +13,8 @@ from models import (
     LockfileInput,
     Project,
     ProjectCreate,
+    ProjectShare,
+    ShareRequest,
     Vulnerability,
     VulnNode,
     VulnEdge,
@@ -51,7 +55,11 @@ app.add_middleware(
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _row_to_project(row) -> Project:
+def _row_to_project(row, shares=None, shared_by_email=None) -> Project:
+    try:
+        is_shared = bool(row["is_shared"])
+    except KeyError:
+        is_shared = False
     return Project(
         id=str(row["id"]),
         name=row["name"],
@@ -62,7 +70,73 @@ def _row_to_project(row) -> Project:
         status=row["status"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        is_shared=is_shared,
+        shares=[ProjectShare(**s) for s in (shares or [])],
+        shared_by_email=shared_by_email,
     )
+
+
+async def _clerk_user_id_from_email(email: str) -> str | None:
+    """Look up a Clerk user's ID by email address. Returns None on any failure."""
+    secret = os.environ.get("CLERK_SECRET_KEY")
+    if not secret:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://api.clerk.com/v1/users",
+                params={"email_address": email},
+                headers={"Authorization": f"Bearer {secret}"},
+            )
+            if resp.status_code == 200:
+                users = resp.json()
+                return users[0]["id"] if users else None
+    except Exception:
+        pass
+    return None
+
+
+async def _clerk_email_from_user_id(user_id: str) -> str | None:
+    """Look up a Clerk user's primary email by their user ID. Returns None on any failure."""
+    secret = os.environ.get("CLERK_SECRET_KEY")
+    if not secret:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://api.clerk.com/v1/users/{user_id}",
+                headers={"Authorization": f"Bearer {secret}"},
+            )
+            if resp.status_code == 200:
+                user = resp.json()
+                emails = user.get("email_addresses", [])
+                primary_id = user.get("primary_email_address_id")
+                for e in emails:
+                    if e.get("id") == primary_id:
+                        return e.get("email_address")
+                if emails:
+                    return emails[0].get("email_address")
+    except Exception:
+        pass
+    return None
+
+
+async def _get_accessible_project(conn, pid: uuid.UUID, user_id: str):
+    """Return project row if user owns it or was shared access. Raises 404 otherwise."""
+    row = await conn.fetchrow(
+        """
+        SELECT p.*, (p.user_id != $2) AS is_shared
+        FROM projects p
+        WHERE p.id = $1
+          AND (p.user_id = $2
+               OR EXISTS (SELECT 1 FROM project_shares
+                          WHERE project_id = $1 AND shared_with_user_id = $2))
+        """,
+        pid, user_id,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return row
 
 
 def _row_to_analysis(row, graph: VulnGraph | None = None) -> AnalyzeResponse:
@@ -464,11 +538,43 @@ async def create_project(
 async def get_projects(user_id: str = Depends(get_current_user_id)):
     pool = await db.get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
+        own_rows = await conn.fetch(
             "SELECT * FROM projects WHERE user_id = $1 ORDER BY created_at DESC",
             user_id,
         )
-    return [_row_to_project(row) for row in rows]
+        own_ids = [r["id"] for r in own_rows]
+        share_rows = (
+            await conn.fetch(
+                "SELECT * FROM project_shares WHERE project_id = ANY($1::uuid[]) ORDER BY created_at ASC",
+                own_ids,
+            )
+            if own_ids else []
+        )
+        shared_rows = await conn.fetch(
+            """
+            SELECT p.*, true AS is_shared, s.owner_email AS shared_by_email
+            FROM projects p
+            JOIN project_shares s ON s.project_id = p.id
+            WHERE s.shared_with_user_id = $1
+            ORDER BY p.created_at DESC
+            """,
+            user_id,
+        )
+
+    # Group shares by owned project id
+    shares_map: dict[str, list] = {}
+    for s in share_rows:
+        key = str(s["project_id"])
+        shares_map.setdefault(key, []).append({
+            "id": str(s["id"]),
+            "project_id": str(s["project_id"]),
+            "shared_with_email": s["shared_with_email"],
+            "created_at": s["created_at"].isoformat() if s["created_at"] else None,
+        })
+
+    result = [_row_to_project(r, shares=shares_map.get(str(r["id"]))) for r in own_rows]
+    result += [_row_to_project(r, shared_by_email=r["shared_by_email"]) for r in shared_rows]
+    return result
 
 
 @app.get("/projects/{project_id}", response_model=Project)
@@ -477,14 +583,9 @@ async def get_project(
     user_id: str = Depends(get_current_user_id),
 ):
     pool = await db.get_pool()
+    pid = uuid.UUID(project_id)
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT * FROM projects WHERE id = $1 AND user_id = $2",
-            uuid.UUID(project_id),
-            user_id,
-        )
-    if not row:
-        raise HTTPException(status_code=404, detail="Project not found")
+        row = await _get_accessible_project(conn, pid, user_id)
     return _row_to_project(row)
 
 
@@ -564,13 +665,7 @@ async def get_vulnerabilities(
     pid = uuid.UUID(project_id)
 
     async with pool.acquire() as conn:
-        project_row = await conn.fetchrow(
-            "SELECT * FROM projects WHERE id = $1 AND user_id = $2", pid, user_id
-        )
-    if not project_row:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    async with pool.acquire() as conn:
+        project_row = await _get_accessible_project(conn, pid, user_id)
         cached = await conn.fetchrow("SELECT * FROM analyses WHERE project_id = $1", pid)
         if cached:
             graph = await _load_graph(conn, pid)
@@ -604,11 +699,7 @@ async def get_graph(
     pid = uuid.UUID(project_id)
 
     async with pool.acquire() as conn:
-        project_row = await conn.fetchrow(
-            "SELECT id FROM projects WHERE id = $1 AND user_id = $2", pid, user_id
-        )
-        if not project_row:
-            raise HTTPException(status_code=404, detail="Project not found")
+        await _get_accessible_project(conn, pid, user_id)
         graph = await _load_graph(conn, pid)
 
     if graph is None:
@@ -630,11 +721,7 @@ async def analyze_project(
     pid = uuid.UUID(project_id)
 
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT * FROM projects WHERE id = $1 AND user_id = $2", pid, user_id
-        )
-    if not row:
-        raise HTTPException(status_code=404, detail="Project not found")
+        row = await _get_accessible_project(conn, pid, user_id)
 
     str_pid = str(pid)
     if str_pid not in _running:
@@ -664,10 +751,7 @@ async def get_remediation_plan(
     nid = uuid.UUID(node_id)
 
     async with pool.acquire() as conn:
-        if not await conn.fetchrow(
-            "SELECT id FROM projects WHERE id = $1 AND user_id = $2", pid, user_id
-        ):
-            raise HTTPException(status_code=404, detail="Project not found")
+        await _get_accessible_project(conn, pid, user_id)
 
         cached = await conn.fetchrow(
             "SELECT plan, created_at FROM remediation_plans WHERE node_id = $1", nid
@@ -756,11 +840,7 @@ async def regenerate_remediation_plan(
     nid = uuid.UUID(node_id)
 
     async with pool.acquire() as conn:
-        if not await conn.fetchrow(
-            "SELECT id FROM projects WHERE id = $1 AND user_id = $2", pid, user_id
-        ):
-            raise HTTPException(status_code=404, detail="Project not found")
-
+        await _get_accessible_project(conn, pid, user_id)
         # Delete cached plan to force regen via the GET endpoint logic
         await conn.execute("DELETE FROM remediation_plans WHERE node_id = $1", nid)
 
@@ -776,13 +856,180 @@ async def get_analysis(
     pool = await db.get_pool()
     pid = uuid.UUID(project_id)
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT * FROM analyses WHERE project_id = $1 AND user_id = $2",
-            pid, user_id,
-        )
+        await _get_accessible_project(conn, pid, user_id)
+        row = await conn.fetchrow("SELECT * FROM analyses WHERE project_id = $1", pid)
     if not row:
         raise HTTPException(status_code=404, detail="No analysis found for this project")
     return _row_to_analysis(row)
+
+
+# ── addressed vulns ───────────────────────────────────────────────────────────
+
+@app.get("/projects/{project_id}/addressed")
+async def get_addressed(
+    project_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    pool = await db.get_pool()
+    pid = uuid.UUID(project_id)
+    async with pool.acquire() as conn:
+        await _get_accessible_project(conn, pid, user_id)
+        rows = await conn.fetch(
+            "SELECT node_id FROM addressed_vulns WHERE project_id = $1 AND user_id = $2",
+            pid, user_id,
+        )
+    return {"node_ids": [str(r["node_id"]) for r in rows]}
+
+
+@app.post("/projects/{project_id}/addressed/{node_id}")
+async def mark_addressed(
+    project_id: str,
+    node_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    pool = await db.get_pool()
+    pid = uuid.UUID(project_id)
+    nid = uuid.UUID(node_id)
+    async with pool.acquire() as conn:
+        await _get_accessible_project(conn, pid, user_id)
+        await conn.execute(
+            """
+            INSERT INTO addressed_vulns (id, project_id, user_id, node_id)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (project_id, user_id, node_id) DO NOTHING
+            """,
+            uuid.uuid4(), pid, user_id, nid,
+        )
+    return {"addressed": True}
+
+
+@app.delete("/projects/{project_id}/addressed/{node_id}")
+async def unmark_addressed(
+    project_id: str,
+    node_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    pool = await db.get_pool()
+    pid = uuid.UUID(project_id)
+    nid = uuid.UUID(node_id)
+    async with pool.acquire() as conn:
+        await _get_accessible_project(conn, pid, user_id)
+        await conn.execute(
+            "DELETE FROM addressed_vulns WHERE project_id = $1 AND user_id = $2 AND node_id = $3",
+            pid, user_id, nid,
+        )
+    return {"addressed": False}
+
+
+# ── project sharing ───────────────────────────────────────────────────────────
+
+@app.get("/projects/{project_id}/shares")
+async def get_shares(
+    project_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    pool = await db.get_pool()
+    pid = uuid.UUID(project_id)
+    async with pool.acquire() as conn:
+        # Only the owner can see the shares list
+        row = await conn.fetchrow(
+            "SELECT id FROM projects WHERE id = $1 AND user_id = $2", pid, user_id
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="Project not found")
+        rows = await conn.fetch(
+            "SELECT * FROM project_shares WHERE project_id = $1 ORDER BY created_at ASC", pid
+        )
+    return [
+        {
+            "id": str(r["id"]),
+            "project_id": str(r["project_id"]),
+            "shared_with_email": r["shared_with_email"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+@app.post("/projects/{project_id}/shares")
+async def share_project(
+    project_id: str,
+    body: ShareRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    email = body.email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    pool = await db.get_pool()
+    pid = uuid.UUID(project_id)
+
+    async with pool.acquire() as conn:
+        project = await conn.fetchrow(
+            "SELECT id FROM projects WHERE id = $1 AND user_id = $2", pid, user_id
+        )
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not os.environ.get("CLERK_SECRET_KEY"):
+        raise HTTPException(
+            status_code=503,
+            detail="CLERK_SECRET_KEY is not configured — cannot look up users by email.",
+        )
+
+    shared_user_id = await _clerk_user_id_from_email(email)
+    if shared_user_id is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No Aegis account found for {email}. They must sign up first.",
+        )
+    if shared_user_id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot share a project with yourself")
+
+    owner_email = await _clerk_email_from_user_id(user_id)
+
+    share_id = uuid.uuid4()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO project_shares (id, project_id, owner_id, owner_email, shared_with_email, shared_with_user_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (project_id, shared_with_email)
+            DO UPDATE SET shared_with_user_id = EXCLUDED.shared_with_user_id,
+                          owner_email = EXCLUDED.owner_email
+            RETURNING *
+            """,
+            share_id, pid, user_id, owner_email, email, shared_user_id,
+        )
+
+    return {
+        "id": str(row["id"]),
+        "project_id": str(row["project_id"]),
+        "shared_with_email": row["shared_with_email"],
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+    }
+
+
+@app.delete("/projects/{project_id}/shares/{share_id}")
+async def revoke_share(
+    project_id: str,
+    share_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    pool = await db.get_pool()
+    pid = uuid.UUID(project_id)
+    sid = uuid.UUID(share_id)
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            """
+            DELETE FROM project_shares
+            WHERE id = $1 AND project_id = $2 AND owner_id = $3
+            """,
+            sid, pid, user_id,
+        )
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Share not found")
+    return {"message": "Share revoked"}
 
 
 if __name__ == "__main__":
